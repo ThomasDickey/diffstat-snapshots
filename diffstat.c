@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.36 2004/12/14 11:41:00 Eric.Blake Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.37 2004/12/17 02:08:11 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.36 2004/12/14 11:41:00 Eric.Blake E
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		16 Dec 2004, fix a different case for data beginning with "--"
+ *			     which was treated as a header line.
  *		14 Dec 2004, Fix allocation problems.  Open files in binary
  *			     mode for reading.  Getopt returns -1, not
  *			     necessarily EOF.  Add const where useful.  Use
@@ -301,6 +303,10 @@ match(const char *s, const char *p)
 	}
 	if (*s++ != *p++)
 	    break;
+	if (*s == EOS && *p == EOS) {
+	    ok = 1;
+	    break;
+	}
     }
     return ok;
 }
@@ -335,9 +341,11 @@ decode_range(const char *s, int *first, int *second)
 {
     char check;
     if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
+	TRACE(("decode_range #1 first=%d, second=%d\n", *first, *second));
 	return 1;
     } else if (sscanf(s, "%d%c", first, &check) == 1) {
 	*second = *first;	/* diffutils 2.7 does this */
+	TRACE(("decode_range #2 first=%d, second=%d\n", *first, *second));
 	return 1;
     }
     return 0;
@@ -526,7 +534,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
 	if (used + 2 > *have) {
 	    adjust_buffer(buffer, *have *= 2);
 	}
-	(*buffer)[used++] = ch;
+	(*buffer)[used++] = (char) ch;
 	if (ch == '\n')
 	    break;
     }
@@ -539,7 +547,9 @@ get_line(char **buffer, size_t *have, FILE *fp)
 static void
 do_file(FILE *fp)
 {
-    DATA dummy, *that = &dummy;
+    DATA dummy;
+    DATA *that = &dummy;
+    DATA *prev = 0;
     char *buffer = 0;
     char *b_fname = 0;
     char *b_temp1 = 0;
@@ -552,7 +562,11 @@ do_file(FILE *fp)
     int unified = 0;
     int old_unify = 0;
     int new_unify = 0;
+    int context = 1;
     char *s;
+#ifdef DEBUG
+    int line_no = 0;
+#endif
 
     memset(&dummy, 0, sizeof(dummy));
     dummy.name = "";
@@ -584,15 +598,31 @@ do_file(FILE *fp)
 	    else
 		break;
 	}
+	TRACE(("[%05d] %s\n", ++line_no, buffer));
 
 	/*
+	 * The lines identifying files in a context diff depend on how it was
+	 * invoked.  But after the header, each chunk begins with a line
+	 * containing 15 *'s.  Each chunk may contain a line-range with '***'
+	 * for the "before", and a line-range with '---' for the "after".  The
+	 * part of the chunk depicting the deletion may be absent, though the
+	 * edit line is present.
+	 *
 	 * The markers for unified diff are a little different from the normal
 	 * context-diff.  Also, the edit-lines in a unified diff won't have a
 	 * space in column 2.  Because of the missing space, we have to count
 	 * lines to ensure we do not confuse the marker lines.
 	 */
 	marker = -1;
-	if (match(buffer, "*** ")) {
+	if (that != &dummy && !strcmp(buffer, "***************")) {
+	    TRACE(("begin context chunk\n"));
+	    context = 2;
+	} else if (context == 2 && match(buffer, "*** ")) {
+	    context = 1;
+	} else if (context == 1 && match(buffer, "--- ")) {
+	    marker = 1;
+	    context = 0;
+	} else if (match(buffer, "*** ")) {
 	    marker = 0;
 	} else if ((old_unify + new_unify) == 0 && match(buffer, "--- ")) {
 	    marker = unified = 1;
@@ -618,6 +648,29 @@ do_file(FILE *fp)
 		    unified = -1;
 		}
 	    }
+	} else if (unified == 1 && !context) {
+	    /*
+	     * If unified==1, we guessed we would find a "+++" line, but since
+	     * we are here, we did not find that.  The context check ensures
+	     * we do not mistake the "---" for a unified diff with that for
+	     * a context diff's "after" line-range.
+	     *
+	     * If we guessed wrong, then we probably found a data line with
+	     * "--" in the first two columns of the diff'd file.
+	     */
+	    unified = 0;
+	    TRACE(("Expected \"+++\" @%d:%s\n", __LINE__, buffer));
+	    if (prev != 0
+		&& prev != that
+		&& that->ins == 0
+		&& that->del == 0
+		&& strcmp(prev->name, that->name)) {
+		TRACE(("giveup on %ld/%ld %s\n", that->ins, that->del, that->name));
+		TRACE(("revert to %ld/%ld %s\n", prev->ins, prev->del, prev->name));
+		delink(that);
+		that = prev;
+		that->del += 1;
+	    }
 	} else if (old_unify + new_unify) {
 	    switch (*buffer) {
 	    case '-':
@@ -641,8 +694,15 @@ do_file(FILE *fp)
 	} else {
 	    unified = 0;
 	}
-	if (marker > 0)
+
+	/*
+	 * Override the beginning of the line to simplify the case statement
+	 * below.
+	 */
+	if (marker > 0) {
+	    TRACE(("@%d, marker=%d, override %s\n", __LINE__, marker, buffer));
 	    (void) strncpy(buffer, "***", 3);
+	}
 
 	/*
 	 * Use the first character of the input line to determine its
@@ -745,6 +805,7 @@ do_file(FILE *fp)
 			&& !contain_any(b_fname, "*")
 			&& !edit_range(b_fname))
 		    ) {
+		    prev = that;
 		    s = do_merging(that, b_fname);
 		    that = new_data(s);
 		    ok = begin_data(that);

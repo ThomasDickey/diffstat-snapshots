@@ -885,9 +885,9 @@ retrieving revision 1.2
 retrieving revision 1.5
 diff -b -w -r1.2 -r1.5
 21c21
-< $Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $
+< @Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @
 ---
-> $Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $
+> @Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @
 172c172
 < #define PDC_BUILD	2401
 ---
@@ -948,9 +948,9 @@ retrieving revision 1.2
 retrieving revision 1.3
 diff -b -w -r1.2 -r1.3
 21c21
-< $Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $
+< @Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @
 ---
-> $Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $
+> @Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @
 370,371c370,371
 < int             XCurses_display_cursor(int,int,int,int);
 < int             XCurses_rawgetch(void);
@@ -975,9 +975,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 36c36
-< char *rcsid_testcurs  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_testcurs  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_testcurs  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_testcurs  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 826c826,830
 <  attrset(A_NORMAL);
 ---
@@ -1169,9 +1169,9 @@ retrieving revision 1.2
 retrieving revision 1.3
 diff -b -w -r1.2 -r1.3
 35c35
-< char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 56a57,62
 >  /* Shifted Keypad		 */
 >  0xb0, KEY_SHOME, 0xb1, KEY_SUP,   0xb2, KEY_SPREVIOUS,
@@ -1301,9 +1301,9 @@ retrieving revision 1.2
 retrieving revision 1.3
 diff -b -w -r1.2 -r1.3
 36c36
-< char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 57a58,63
 >  /* Shifted Keypad		 */
 >  0xb0, KEY_SHOME, 0xb1, KEY_SUP,   0xb2, KEY_SPREVIOUS,
@@ -1559,9 +1559,9 @@ diff -b -w -r1.1 -r1.3
 > #undef	PDC_leftline
 > #undef	PDC_rightline
 40c43
-< char *rcsid_border  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_border  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_border  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_border  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 56a60,62
 >   	int PDC_wunderline(WINDOW *win, int n, bool state);
 >   	int PDC_wleftline(WINDOW *win, int n, bool state);
@@ -1741,9 +1741,9 @@ diff -b -w -r1.1 -r1.2
 38a39
 > #undef	PDC_set_line_color
 51c52
-< char *rcsid_color  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_color  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_color  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_color  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 65a67
 >   	int PDC_set_line_color(short color);
 101a104,107
@@ -1781,9 +1781,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 42c42
-< char *rcsid_getch  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_getch  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_getch  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_getch  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 163c163
 < 	int waitingtenths = SP->delaytenths;
 ---
@@ -1809,9 +1809,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 64c64
-< char *rcsid_initscr  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_initscr  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_initscr  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_initscr  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 324,325c324,325
 < ACS_SBSS = (chtype)21|A_ALTCHARSET;
 < ACS_SSSB = (chtype)22|A_ALTCHARSET;
@@ -1826,9 +1826,9 @@ retrieving revision 1.1
 retrieving revision 1.3
 diff -b -w -r1.1 -r1.3
 68c68
-< char *rcsid_util  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_util  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_util  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_util  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 237c237
 <  "KEY_RESIZE"
 ---
@@ -1856,9 +1856,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 28c28
-< char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 318c318
 <  {KEY_UP,     SHF_UP,         CTL_UP,      ALT_UP      }, /* 38 */
 ---
@@ -1973,9 +1973,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 37c37
-< char *rcsid_PDCdisp  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCdisp  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCdisp  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCdisp  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 201c201
 < 	XCurses_display_cursor(SP->cursrow,SP->curscol,row,col);
 ---
@@ -1988,9 +1988,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 28c28
-< char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCkbd  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCkbd  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 243c243
 < 	c = XCurses_rawgetch();
 ---
@@ -2003,9 +2003,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 27c27
-< char *rcsid_PDCscrn  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCscrn  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCscrn  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCscrn  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 179a180
 > 	internal->line_color = COLOR_WHITE;
 
@@ -2016,9 +2016,9 @@ retrieving revision 1.1
 retrieving revision 1.2
 diff -b -w -r1.1 -r1.2
 27c27
-< char *rcsid_PDCsetsc  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+< char *rcsid_PDCsetsc  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 ---
-> char *rcsid_PDCsetsc  = "$Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp $";
+> char *rcsid_PDCsetsc  = "@Id: case16.pat,v 1.1 2001/04/22 23:30:04 tom Exp @";
 123c123
 <  int ret_vis;
 ---
