@@ -1,3 +1,12 @@
+Patch 3 (06-May-1995)
+
+	Repost whole program to comp.sources.misc (1.17)
+
+	Mods to scaling: limit to 1:1 if only a few changes were made; added
+	logic to accumulate error across +/-/!  calls.
+
+	added logic to recognize 'rcsdiff -u' output.
+
 Patch 2 (26-Dec-1994)
 
 	Strip common pathname prefix (1.15)
