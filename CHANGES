@@ -1,3 +1,7 @@
+Patch 2 (26-Dec-1994)
+
+	Strip common pathname prefix (1.15)
+
 Patch 1 (13-Nov-1994)
 
 	Test for <string.h> vs <strings.h>

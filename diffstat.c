@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.14 1994/11/13 19:40:10 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.15 1994/12/26 01:44:59 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.14 1994/11/13 19:40:10 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		26 Dec 1994, strip common pathname-prefix.
  *		13 Nov 1994, added '-n' option.  Corrected logic of 'match'.
  *		17 Jun 1994, ifdef-<string.h>
  *		12 Jun 1994, recognize unified diff, and output of makepatch.
@@ -352,12 +353,30 @@ void	summarize()
 		total_del = 0,
 		total_mod = 0,
 		temp;
-	int	num_files = 0;
+	int	num_files = 0,
+		shortest_name = -1,
+		longest_name  = -1,
+		prefix_len    = -1;
 
 	for (p = all_data; p; p = p->link) {
 		int	len = strlen(p->name);
-		if (len > name_wide)
-			name_wide = len;
+
+		if (len < prefix_len || prefix_len < 0)
+			prefix_len = len;
+		while (prefix_len > 0) {
+			if (p->name[prefix_len-1] != '/')
+				prefix_len--;
+			else if (strncmp(all_data->name, p->name, prefix_len))
+				prefix_len--;
+			else
+				break;
+		}
+
+		if (len > longest_name)
+			longest_name = len;
+		if (len < shortest_name || shortest_name < 0)
+			shortest_name = len;
+
 		num_files++;
 		total_ins += p->ins;
 		total_del += p->del;
@@ -367,13 +386,18 @@ void	summarize()
 			scale = temp;
 	}
 
+	if (prefix_len < 0)
+		prefix_len = 0;
+	if ((longest_name - prefix_len) > name_wide)
+		name_wide = (longest_name - prefix_len);
+
 	name_wide++;	/* make sure it's nonzero */
 	plot_width = (max_width - name_wide - 8);
 	if (plot_width < 10)
 		plot_width = 10;
 
 	for (p = all_data; p; p = p->link) {
-		printf(" %-*.*s|", name_wide, name_wide, p->name);
+		printf(" %-*.*s|", name_wide, name_wide, p->name + prefix_len);
 		if (p->cmt == Normal) {
 			printf("%5ld ", p->ins + p->del + p->mod);
 			plot(p->ins, scale, '+');
