@@ -3,4 +3,4 @@
  lib_initscr.c  |    4 ++
  lib_pad.c      |   48 +++++++++++++++++++++++-------
  ncurses.c      |   29 ++++++++++++++++++
- 5 files changed, 142 insertions, 32 deletions
+ 5 files changed, 142 insertions(+), 32 deletions(-)

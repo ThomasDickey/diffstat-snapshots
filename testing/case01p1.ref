@@ -25,4 +25,4 @@
  build/x11r6/XFree86-current/xc/test/xsuite/xtest/src/bin/mc/files.c                            |    2 -
  build/x11r6/XFree86-current/xc/util/patch/malloc.c                                             |   12 +++------
  build/x11r6/XFree86-current/xc/util/patch/pch.c                                                |    2 -
- 27 files changed, 68 insertions, 36 deletions
+ 27 files changed, 68 insertions(+), 36 deletions(-)

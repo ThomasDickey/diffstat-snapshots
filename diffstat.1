@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994,1996,1998 by Thomas E. Dickey <dickey@clark.net>            *
+.\" Copyright 1994,1996,1998,2000,2001 by Thomas E. Dickey                     *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.10 2000/03/30 00:07:17 tom Exp $
+.\" $Id: diffstat.1,v 1.11 2001/10/11 00:22:44 tom Exp $
 .de DS
 .RS
 .nf
@@ -45,7 +45,7 @@ of the insertions, deletions, and modifications per-file.
 Diffstat is a program that is useful for reviewing large, complex patch files.
 It reads from one or more input files which contain output from \fBdiff\fP,
 producing a histogram of the total lines changed for each file referenced.
-If the input filename ends with .Z or .gz, diffstat will read the
+If the input filename ends with .bz2, .Z or .gz, diffstat will read the
 uncompressed data via a pipe.
 ..
 .PP
@@ -121,4 +121,4 @@ There's no easy way to determine the degree of overlap between the
 diff (1).
 .SH AUTHOR
 .PP
-Thomas Dickey (dickey@clark.net).
+Thomas Dickey <dickey@invisible-island.net>.

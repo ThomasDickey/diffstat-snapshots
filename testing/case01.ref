@@ -25,4 +25,4 @@
  test/xsuite/xtest/src/bin/mc/files.c                            |    2 -
  util/patch/malloc.c                                             |   12 +++------
  util/patch/pch.c                                                |    2 -
- 27 files changed, 68 insertions, 36 deletions
+ 27 files changed, 68 insertions(+), 36 deletions(-)
