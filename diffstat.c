@@ -6,7 +6,7 @@
  * this copyright notice, and it must be included in any copy made.           *
  ******************************************************************************/
 #if	!defined(NO_IDENT)
-static	char	*Id = "$Id: diffstat.c,v 1.12 1994/06/13 00:43:20 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.13 1994/06/17 23:32:17 tom Exp $";
 #endif
 
 /*
@@ -14,6 +14,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.12 1994/06/13 00:43:20 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		17 Jun 1994, ifdef-<string.h>
  *		12 Jun 1994, recognize unified diff, and output of makepatch.
  *		04 Oct 1993, merge multiple diff-files, busy message when the
  *			     output is piped to a file.
@@ -27,8 +28,15 @@ static	char	*Id = "$Id: diffstat.c,v 1.12 1994/06/13 00:43:20 tom Exp $";
 #endif
 
 #include <stdio.h>
-#include <string.h>
 #include <ctype.h>
+
+#if HAVE_STRING_H
+#include <string.h>
+#else
+#include <strings.h>
+#define strchr index
+#define strrchr rindex
+#endif
 
 #if HAVE_STDLIB_H
 #include <stdlib.h>
