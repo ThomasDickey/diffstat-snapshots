@@ -1,3 +1,24 @@
+29-Mar-2000
+	diffstat 1.28
+
+	Add -c option (to prefix output with '#' comment), eliminating a step
+	in my script that combines diffstat output with a patch.  This is a
+	workaround for OSF1's broken sed utility.
+
+	Check for compressed file suffixes .Z and .gz, read uncompressed data
+	via pipe (Debian wishlist item #53975 by ch@lathspell.westend.com).
+
+	Simplified makefile based on comments by M Sweger
+	<mikesw@whiterose.net>
+
+	Adapted changes from Troy Engel <tengel@sonic.net> as "-f" option.
+
+27-May-1998
+	diffstat 1.27
+
+	Debian diff's don't show dates on the lines where we expect to see
+	filenames.
+
 Patch 5 (16-Jan-1998)
 	diffstat 1.26
 
