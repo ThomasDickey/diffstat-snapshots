@@ -1,12 +1,12 @@
-# $Id: makefile.in,v 1.8 1994/11/13 19:46:59 tom Exp $
+# $Id: makefile.in,v 1.11 1998/01/17 01:36:01 tom Exp $
 # Makefile-template for 'diffstat'
 
-THIS = diffstat
+THIS		= diffstat
 
 #### Start of system configuration section. ####
 
-srcdir = @srcdir@
-VPATH  = @srcdir@
+srcdir		= @srcdir@
+VPATH		= @srcdir@
 
 CC		= @CC@
 LINK		= $(CC)
@@ -18,12 +18,13 @@ LIBS		= @LIBS@
 CFLAGS		= @CFLAGS@
 LDFLAGS		=
 
+install_prefix	=
 prefix		= @prefix@
 exec_prefix	= @exec_prefix@
 
-bindir		= $(exec_prefix)/bin
-libdir		= $(exec_prefix)/lib
-mandir		= $(prefix)/man/man1
+bindir		= $(install_prefix)$(exec_prefix)/bin
+libdir		= $(install_prefix)$(exec_prefix)/lib
+mandir		= $(install_prefix)$(prefix)/man/man1
 manext		= 1
 
 #### End of system configuration section. ####
@@ -34,9 +35,6 @@ CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H
 
 LDFLAGS		= 
 
-.c.o:
-	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
-
 SRC = CHANGES patchlev.h \
 	README $(THIS).c $(THIS).1 \
 	config_h.in install.sh mkdirs.sh makefile.in configure.in
@@ -46,6 +44,9 @@ OBJ = $(THIS).o
 DISTFILES = configure $(SRC)
 
 all:	$(THIS)
+
+.c.o:
+	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
 
 $(THIS): $(OBJ)
 	-mv $(THIS) o$(THIS)
@@ -71,7 +72,7 @@ config.status: configure
 	./config.status --recheck
 
 mostlyclean:
-	rm -f *.o o$(THIS) core *~ *.BAK
+	rm -f *.o o$(THIS) core *~ *.out *.BAK *.atac
 
 clean: mostlyclean
 	rm -f $(THIS)
@@ -81,6 +82,9 @@ distclean: clean
 
 realclean: distclean
 	rm -f tags TAGS # don't remove configure!
+
+check:
+	cd testing && run_test.sh
 
 lint:
 	lint $(THIS).c
@@ -111,4 +115,4 @@ shar:	$(DISTFILES)
 
 $(THIS).o:	config.h
 
-$(SRC):	; checkout $@
+$(SRC):

@@ -1,3 +1,14 @@
+Patch 5 (16-Jan-1998)
+	diffstat 1.26
+
+	Change copyright terms.
+
+ 	Accommodate patches w/o tabs in header lines (e.g., from cut/paste).
+	Still prefer the tabs because otherwise we cannot have spaces in
+	filenames.
+
+ 	Strip suffixes such as ".orig", to avoid confusing output.
+
 Patch 4 (16-Mar-1996)
 	diffstat 1.24
 
