@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.22 2004/11/09 02:00:09 tom Exp $
+# $Id: makefile.in,v 1.23 2004/12/18 12:27:38 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -42,6 +42,10 @@ PROG		= $(THIS)$x
 SRC = CHANGES \
 	README $(THIS).c $(THIS).1 \
 	config_h.in install.sh mkdirs.sh makefile.in configure.in aclocal.m4
+
+TESTFILES =	testing/README \
+		testing/run_test.sh \
+		testing/case0[1-5]*
 
 DISTFILES = configure config.guess config.sub $(SRC)
 
@@ -101,6 +105,11 @@ dist:	makefile $(DISTFILES)
 	for file in $(DISTFILES); do \
 	  ln $(srcdir)/$$file `cat .fname` \
 	    || { echo copying $$file instead; cp -p $$file `cat .fname`; }; \
+	done
+	mkdir `cat .fname`/testing
+	for file in $(TESTFILES); do \
+	  ln $(srcdir)/$$file `cat .fname`/testing \
+	    || { echo copying $$file instead; cp -p $$file `cat .fname`/testing; }; \
 	done
 	tar -cf - `cat .fname` | gzip >`cat .fname`.tgz
 	rm -rf `cat .fname` .fname

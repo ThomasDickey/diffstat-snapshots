@@ -1,3 +1,8 @@
+18-Dec-2004
+
+	modify distribution to include sample of regression tests, so a
+	"make check" will work (request by Eric Blake).
+
 16-Dec-2004
 	diffstat 1.37
 
