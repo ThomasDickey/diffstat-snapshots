@@ -5,8 +5,9 @@
  * profit made from its use, sale trade or reproduction. You may not change   *
  * this copyright notice, and it must be included in any copy made.           *
  ******************************************************************************/
-#if	!defined(NO_IDENT)
-static	char	*Id = "$Id: diffstat.c,v 1.13 1994/06/17 23:32:17 tom Exp $";
+
+#ifndef	NO_IDENT
+static	char	*Id = "$Id: diffstat.c,v 1.14 1994/11/13 19:40:10 tom Exp $";
 #endif
 
 /*
@@ -14,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.13 1994/06/17 23:32:17 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		13 Nov 1994, added '-n' option.  Corrected logic of 'match'.
  *		17 Jun 1994, ifdef-<string.h>
  *		12 Jun 1994, recognize unified diff, and output of makepatch.
  *		04 Oct 1993, merge multiple diff-files, busy message when the
@@ -22,6 +24,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.13 1994/06/17 23:32:17 tom Exp $";
  * Function:	this program reads the output of 'diff' and displays a histogram
  *		of the insertions/deletions/modifications per-file.
  */
+
+#include "patchlev.h"
 
 #if	defined(HAVE_CONFIG_H)
 #include "config.h"
@@ -176,13 +180,16 @@ int	match(s, p)
 	char	*s;
 	char	*p;
 {
+	int	ok = FALSE;
 	while (*s != EOS) {
-		if (*p == EOS)
+		if (*p == EOS) {
+			ok = TRUE;
 			break;
+		}
 		if (*s++ != *p++)
-			return FALSE;
+			break;
 	}
-	return TRUE;
+	return ok;
 }
 
 static
@@ -194,7 +201,14 @@ void	do_file(fp)
 	int	ok = FALSE;
 	register char *s;
 
+	dummy.ins =
+	dummy.del =
+	dummy.mod = 0;
+
 	while (fgets(buffer, sizeof(buffer), fp)) {
+		/*
+		 * Trim trailing blanks (e.g., newline)
+		 */
 		for (s = buffer + strlen(buffer); s > buffer; s--) {
 			if (isspace(s[-1]))
 				s[-1] = EOS;
@@ -204,7 +218,8 @@ void	do_file(fp)
 
 		/*
 		 * The markers for unified diff are a little different from the
-		 * normal context-diff:
+		 * normal context-diff.  Also, the edit-lines in a unified diff
+		 * won't have a space in column 2.
 		 */
 		if (match(buffer, "+++ ")
 		 || match(buffer, "--- "))
@@ -279,7 +294,9 @@ void	do_file(fp)
 			break;
 
 		case '+':
-			/* fall-thru */
+			if (buffer[1] == buffer[0])
+				break;
+			/* FALL-THRU */
 		case '>':
 			if (!ok)
 				break;
@@ -289,7 +306,7 @@ void	do_file(fp)
 		case '-':
 			if (!ok)
 				break;
-			if (buffer[1] == '-')
+			if (buffer[1] == buffer[0])
 				break;
 			/* fall-thru */
 		case '<':
@@ -305,7 +322,7 @@ void	do_file(fp)
 			break;
 
 		case 'B':	/* Binary */
-			/* fall-thru */
+			/* FALL-THRU */
 		case 'b':	/* binary */
 			if (match(buffer+1, "inary files "))
 				this->cmt = Binary;
@@ -321,7 +338,7 @@ void	plot(num, max, c)
 	long	max;
 	int	c;
 {
-	num = (((plot_width * num) + (plot_width/2)) / max);
+	num = ((plot_width * num) / max);
 	while (--num >= 0)
 		(void)putchar(c);
 }
@@ -374,7 +391,7 @@ void	summarize()
 	if (total_ins) printf(", %ld insertions", total_ins);
 	if (total_del) printf(", %ld deletions", total_del);
 	if (total_mod) printf(", %ld modifications", total_mod);
-	printf("\n");
+	(void)putchar('\n');
 }
 
 static
@@ -384,11 +401,13 @@ void	usage()
 	"Usage: diffstat [options] [files]",
 	"",
 	"Reads from one or more input files which contain output from 'diff',",
-	"producing a histgram of total lines changed for each file referenced.",
+	"producing a histogram of total lines changed for each file referenced.",
 	"If no filename is given on the command line, reads from stdin.",
 	"",
 	"Options:",
-	"  -w NUM  specify maximum width of the output (default: 80)"
+	"  -n NUM  specify minimum width for the filenames (default: auto)",
+	"  -w NUM  specify maximum width of the output (default: 80)",
+	"  -V      prints the version number"
 	};
 	register int j;
 	for (j = 0; j < sizeof(msg)/sizeof(msg[0]); j++)
@@ -401,16 +420,27 @@ int	main(argc, argv)
 	char	*argv[];
 {
 	register int	j;
+	char	version[80];
 
 	max_width = 80;
 	piped_output = !isatty(fileno(stdout))
 		     && isatty(fileno(stderr));
 
-	while ((j = getopt(argc, argv, "w:")) != EOF) {
+	while ((j = getopt(argc, argv, "n:w:V")) != EOF) {
 		switch (j) {
+		case 'n':
+			name_wide = atoi(optarg);
+			break;
 		case 'w':
 			max_width = atoi(optarg);
 			break;
+		case 'V':
+			if (!sscanf(Id, "%*s %*s %s", version))
+				(void)strcpy(version, "?");
+			printf("diffstat version %s (patch %d)\n",
+				version,
+				PATCHLEVEL);
+			exit(EXIT_SUCCESS);
 		default:
 			usage();
 			/*NOTREACHED*/

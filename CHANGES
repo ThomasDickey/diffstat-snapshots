@@ -1,0 +1,17 @@
+Patch 1 (13-Nov-1994)
+
+	Test for <string.h> vs <strings.h>
+
+	Corrected error in 'match()' that didn't handle properly the case when
+	an argument was a null string (i.e., blank lines in a unified diff).
+
+	Added options '-n' and '-V'
+
+	Added patchlev.h, CHANGES files.
+
+	Added install.sh, for autoconf 2.1
+
+
+Patch 0 (13-Jun-1994)
+
+	Initial version of 'diffstat' (1.12).
