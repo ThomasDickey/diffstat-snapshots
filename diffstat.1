@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.13 2003/01/04 16:08:27 tom Exp $
+.\" $Id: diffstat.1,v 1.15 2003/02/15 01:05:12 tom Exp $
 .de DS
 .RS
 .nf
@@ -71,8 +71,14 @@ If no filename is given on the command line,
 prefix each line of output with "#", making it a comment-line for shell
 scripts.
 .TP
+.BI \-e " file"
+redirect standard error to \fIfile\fR.
+.TP
 .BI \-f " format"
 specify 0 for concise, 1 for normal output.
+.TP
+.B \-h
+prints the usage message and exits.
 .TP
 .B \-k
 suppress the merging of filenames in the report.
@@ -81,6 +87,9 @@ suppress the merging of filenames in the report.
 specify the minimum width used for filenames.
 If you don't specify this, \fBdiffstat\fP uses the length of the longest
 filename, after stripping common prefixes.
+.TP
+.BI \-o " file"
+redirect standard output to \fIfile\fR.
 .TP
 .BI \-p " number"
 override the logic that strips common pathnames, simulating the \fBpatch\fP
@@ -95,7 +104,7 @@ e.g., if the output is redirected to a file,
 write progress messages to the standard error.
 .TP
 .B \-V
-prints the current version number
+prints the current version number and exits.
 .TP
 .BI \-w " number"
 specify the maximum width of the histogram.
