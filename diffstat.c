@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994,1995,1996,1998,2000,2001 by Thomas E. Dickey                *
+ * Copyright 1994-2001,2002 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.29 2001/10/11 00:15:51 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.30 2002/08/09 14:47:19 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,9 @@ static char *Id = "$Id: diffstat.c,v 1.29 2001/10/11 00:15:51 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		09 Aug 2002, allow either '/' or '-' as delimiters in dates,
+ *			     to accommodate diffutils 2.8 (report by Rik van
+ *			     Riel <riel@conectiva.com.br>).
  *		10 Oct 2001, add bzip2 (.bz2) suffix as suggested by
  *			     Gregory T Norris <haphazard@socket.net> in Debian
  *			     bug report #82969).
@@ -189,7 +192,7 @@ blip(int c)
 static char *
 new_string(char *s)
 {
-    return strcpy((char *)malloc((unsigned) (strlen(s) + 1)), s);
+    return strcpy((char *) malloc((unsigned) (strlen(s) + 1)), s);
 }
 
 static DATA *
@@ -301,8 +304,7 @@ can_be_merged(char *path)
     return FALSE;
 }
 
-static
-int
+static int
 is_leaf(char *leaf, char *path)
 {
     char *s;
@@ -401,6 +403,8 @@ skip_options(char *params)
     return params;
 }
 
+#define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
+
 static void
 do_file(FILE * fp)
 {
@@ -493,6 +497,7 @@ do_file(FILE * fp)
 		char wday[BUFSIZ], mmm[BUFSIZ];
 		int ddd, hour, minute, second;
 		int day, month, year;
+		char yrmon, monday;
 
 		/* check for tab-delimited first, so we can
 		 * accept filenames containing spaces.
@@ -503,10 +508,11 @@ do_file(FILE * fp)
 			   wday, mmm, &ddd,
 			   &hour, &minute, &second, &year) == 8
 		    || (sscanf(buffer,
-			       "*** %[^\t]\t%d/%d/%d %d:%d:%d",
+			       "*** %[^\t]\t%d%c%d%c%d %d:%d:%d",
 			       fname,
-			       &year, &month, &day,
-			       &hour, &minute, &second) == 7
+			       &year, &yrmon, &month, &monday, &day,
+			       &hour, &minute, &second) == 9
+			&& date_delims(yrmon, monday)
 			&& !version_num(fname))
 		    || sscanf(buffer,
 			      "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
@@ -515,11 +521,12 @@ do_file(FILE * fp)
 			      wday, mmm, &ddd,
 			      &hour, &minute, &second, &year) == 9
 		    || (sscanf(buffer,
-			       "*** %[^\t ]%[\t ]%d/%d/%d %d:%d:%d",
+			       "*** %[^\t ]%[\t ]%d%c%d%c%d %d:%d:%d",
 			       fname,
 			       skip,
-			       &year, &month, &day,
-			       &hour, &minute, &second) == 8
+			       &year, &yrmon, &month, &monday, &day,
+			       &hour, &minute, &second) == 10
+			&& date_delims(yrmon, monday)
 			&& !version_num(fname))
 		    || (sscanf(buffer,
 			       "*** %[^\t ]%[\t ]",
@@ -732,7 +739,7 @@ is_compressed(char *name)
 	verb = "bzip2 -dc %s";
     }
     if (verb != 0) {
-	result = (char *)malloc(strlen(verb) + len);
+	result = (char *) malloc(strlen(verb) + len);
 	sprintf(result, verb, name);
     }
     return result;

@@ -1,3 +1,20 @@
+09-Aug-2002
+	diffstat 1.30
+
+	allow either '/' or '-' as delimiters in dates, to accommodate gendiff
+	(report by Rik van Riel <riel@conectiva.com.br>).  This corresponds to
+	the time format used in diffutils 2.8 whose changelog states that this
+	is ISO 8601 (though online references differ).
+
+10-Oct-2001
+	diffstat 1.29
+
+	add bzip2 (.bz2) suffix as suggested by Gregory T Norris
+	<haphazard@socket.net> in Debian bug report #82969).
+
+	add check for diff from RCS archive where the "diff" lines do not
+	reference a filename.
+
 29-Mar-2000
 	diffstat 1.28
 
@@ -70,4 +87,4 @@ Patch 1 (13-Nov-1994)
 
 Patch 0 (13-Jun-1994)
 
-	Initial version of 'diffstat' (1.12).
+	Initial release of 'diffstat' (1.12).
