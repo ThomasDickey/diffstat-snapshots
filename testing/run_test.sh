@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.4 1998/01/17 00:10:24 tom Exp $
+# $Id: run_test.sh,v 1.5 2002/08/20 22:48:22 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -10,7 +10,9 @@ PATH=`cd ..;pwd`:$PATH; export PATH
 
 for i in $*
 do
-	for j in "" "-p1" "-p9"
+	N=`basename $i .pat`
+	echo "testing $N"
+	for j in "" "-p1" "-p9" "-f0" "-u" "-k"
 	do
 		N=`basename $i .pat`
 		I=$N.pat

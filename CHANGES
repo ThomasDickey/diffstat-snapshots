@@ -1,3 +1,10 @@
+20-Aug-2002
+	diffstat 1.31
+
+	add -u, -k options to override diffstat's normal sorting (-u) and
+	merging (-k) of identical filenames.  (-u requested by H Peter Anvin
+	<hpa@zytor.com>).
+
 09-Aug-2002
 	diffstat 1.30
 
