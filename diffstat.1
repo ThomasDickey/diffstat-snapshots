@@ -5,7 +5,7 @@
 .\" profit made from its use, sale trade or reproduction. You may not change   *
 .\" this copyright notice, and it must be included in any copy made.           *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.2 1994/06/13 23:38:35 tom Exp $
+.\" $Id: diffstat.1,v 1.4 1994/11/13 19:42:43 tom Exp $
 .de DS
 .RS
 .nf
@@ -62,6 +62,14 @@ If no filename is given on the command line,
 \fBdiffstat\fR reads the differences from the standard input.
 .
 .SH OPTIONS
+.TP
+.BI \-n " number"
+specify the minimum width used for filenames.
+If you don't specify this, \fBdiffstat\fR uses the length of the longest
+filename, after stripping common prefixes.
+.TP
+.B \-V
+prints the current version number
 .TP
 .BI \-w " number"
 specify the maximum width of the histogram.
