@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.30 2002/08/09 14:47:19 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.31 2002/08/20 23:38:52 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static char *Id = "$Id: diffstat.c,v 1.30 2002/08/09 14:47:19 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		20 Aug 2002, add -u option to tell diffstat to preserve the
+ *			     order of filenames as given rather than sort them
+ *			     (request by H Peter Anvin <hpa@zytor.com>).  Add
+ *			     -k option for completeness.
  *		09 Aug 2002, allow either '/' or '-' as delimiters in dates,
  *			     to accommodate diffutils 2.8 (report by Rik van
  *			     Riel <riel@conectiva.com.br>).
@@ -44,10 +48,10 @@ static char *Id = "$Id: diffstat.c,v 1.30 2002/08/09 14:47:19 tom Exp $";
  *			     dates on the header lines.
  *		16 Jan 1998, accommodate patches w/o tabs in header lines (e.g.,
  *			     from cut/paste).  Strip suffixes such as ".orig".
- *		24 Mar 1996, corrected -p0 logic, more fixes in merge_name.
+ *		24 Mar 1996, corrected -p0 logic, more fixes in do_merging.
  *		16 Mar 1996, corrected state-change for "Binary".  Added -p
  *			     option.
- *		17 Dec 1995, corrected matching algorithm in 'merge_name()'
+ *		17 Dec 1995, corrected matching algorithm in 'do_merging()'
  *		11 Dec 1995, mods to accommodate diffs against /dev/null or
  *			     /tmp/XXX (tempfiles).
  *		06 May 1995, limit scaling -- only shrink-to-fit.
@@ -164,11 +168,13 @@ typedef struct _data {
 static DATA *all_data;
 static char *comment_opt = "";
 static int format_opt = 1;
-static int piped_output;
 static int max_width;		/* the specified width-limit */
+static int merge_names = 1;	/* true if we merge similar filenames */
 static int name_wide;		/* the amount reserved for filenames */
-static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
+static int piped_output;
 static int plot_width;		/* the amount left over for histogram */
+static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
+static int sort_names = 1;	/* true if we sort filenames */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
 /******************************************************************************/
@@ -202,14 +208,16 @@ new_data(char *name)
 
     TRACE(("new_data(%s)\n", name));
 
-    /* insert into sorted list */
+    /* Insert into sorted list (usually sorted).  If we are not sorting or
+     * merging names, we fall off the end and link the new entry to the end of
+     * the list.
+     */
     for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	int cmp = strcmp(p->name, name);
-	if (cmp == 0)
+	if (merge_names && (cmp == 0))
 	    return p;
-	if (cmp > 0) {
+	if (sort_names && (cmp > 0))
 	    break;
-	}
     }
     r = (DATA *) malloc(sizeof(DATA));
     if (q != 0)
@@ -221,9 +229,9 @@ new_data(char *name)
     r->name = new_string(name);
     r->base = 0;
     r->cmt = Normal;
-    r->ins =
-	r->del =
-	r->mod = 0;
+    r->ins = 0;
+    r->del = 0;
+    r->mod = 0;
 
     return r;
 }
@@ -245,6 +253,7 @@ delink(DATA * data)
 		q->link = p->link;
 	    else
 		all_data = p->link;
+	    free(p);
 	    return;
 	}
     }
@@ -317,9 +326,9 @@ is_leaf(char *leaf, char *path)
 }
 
 static char *
-merge_name(DATA * data, char *path)
+do_merging(DATA * data, char *path)
 {
-    TRACE(("merge_name(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
+    TRACE(("do_merging(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
 
     if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
 	if (is_leaf(data->name, path)) {
@@ -414,9 +423,9 @@ do_file(FILE * fp)
     char *s;
 
     dummy.name = "";
-    dummy.ins =
-	dummy.del =
-	dummy.mod = 0;
+    dummy.ins = 0;
+    dummy.del = 0;
+    dummy.mod = 0;
 
     while (fgets(buffer, sizeof(buffer), fp)) {
 	/*
@@ -536,7 +545,7 @@ do_file(FILE * fp)
 			&& !contain_any(fname, "*")
 			&& !edit_range(fname))
 		    ) {
-		    s = merge_name(that, fname);
+		    s = do_merging(that, fname);
 		    that = new_data(s);
 		    ok = begin_data(that);
 		    TRACE(("after merge:%d:%s\n", ok, s));
@@ -763,6 +772,7 @@ usage(void)
 	"  -f NUM  format (0=concise, 1=normal)",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
+	"  -u      do not sort the input list",
 	"  -w NUM  specify maximum width of the output (default: 80)",
 	"  -V      prints the version number"
     };
@@ -782,7 +792,7 @@ main(int argc, char *argv[])
     piped_output = !isatty(fileno(stdout))
 	&& isatty(fileno(stderr));
 
-    while ((j = getopt(argc, argv, "cf:n:p:w:V")) != EOF) {
+    while ((j = getopt(argc, argv, "cf:kn:p:uw:V")) != EOF) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
@@ -790,11 +800,17 @@ main(int argc, char *argv[])
 	case 'f':
 	    format_opt = atoi(optarg);
 	    break;
+	case 'k':
+	    merge_names = 0;
+	    break;
 	case 'n':
 	    name_wide = atoi(optarg);
 	    break;
 	case 'p':
 	    prefix_opt = atoi(optarg);
+	    break;
+	case 'u':
+	    sort_names = 0;
 	    break;
 	case 'w':
 	    max_width = atoi(optarg);
@@ -843,6 +859,14 @@ main(int argc, char *argv[])
 	do_file(stdin);
     }
     summarize();
+#ifdef DEBUG
+    while (all_data != 0) {
+	DATA *p = all_data;
+	all_data = all_data->link;
+	free(p->name);
+	free(p);
+    }
+#endif
     exit(EXIT_SUCCESS);
     /*NOTREACHED */
 }
