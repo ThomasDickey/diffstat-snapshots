@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994,1995,1996,1998,2000 by Thomas E. Dickey <dickey@clark.net>  *
+ * Copyright 1994,1995,1996,1998,2000,2001 by Thomas E. Dickey                *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.28 2000/03/30 00:01:19 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.29 2001/10/11 00:15:51 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,11 @@ static char *Id = "$Id: diffstat.c,v 1.28 2000/03/30 00:01:19 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		10 Oct 2001, add bzip2 (.bz2) suffix as suggested by
+ *			     Gregory T Norris <haphazard@socket.net> in Debian
+ *			     bug report #82969).
+ *			     add check for diff from RCS archive where the
+ *			     "diff" lines do not reference a filename.
  *		29 Mar 2000, add -c option.  Check for compressed input, read
  *			     via pipe.  Change to ANSI C.  Adapted change from
  *			     Troy Engel to add option that displays a number
@@ -127,7 +132,7 @@ extern int optind;
 #define BLANK   ' '
 
 #ifdef DEBUG
-#define TRACE(p) printf p;
+#define TRACE(p) printf p
 #else
 #define TRACE(p)		/*nothing */
 #endif
@@ -184,18 +189,18 @@ blip(int c)
 static char *
 new_string(char *s)
 {
-    return strcpy(malloc((unsigned) (strlen(s) + 1)), s);
+    return strcpy((char *)malloc((unsigned) (strlen(s) + 1)), s);
 }
 
 static DATA *
 new_data(char *name)
 {
-    register DATA *p, *q, *r;
+    DATA *p, *q, *r;
 
-    TRACE(("new_data(%s)\n", name))
+    TRACE(("new_data(%s)\n", name));
 
     /* insert into sorted list */
-	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+    for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	int cmp = strcmp(p->name, name);
 	if (cmp == 0)
 	    return p;
@@ -227,11 +232,11 @@ new_data(char *name)
 static void
 delink(DATA * data)
 {
-    register DATA *p, *q;
+    DATA *p, *q;
 
-    TRACE(("delink '%s'\n", data->name))
+    TRACE(("delink '%s'\n", data->name));
 
-	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+    for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	if (p == data) {
 	    if (q != 0)
 		q->link = p->link;
@@ -247,6 +252,7 @@ static int
 match(char *s, char *p)
 {
     int ok = FALSE;
+
     while (*s != EOS) {
 	if (*p == EOS) {
 	    ok = TRUE;
@@ -311,14 +317,14 @@ is_leaf(char *leaf, char *path)
 static char *
 merge_name(DATA * data, char *path)
 {
-    TRACE(("merge_name(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)))
+    TRACE(("merge_name(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
 
-	if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
+    if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
 	if (is_leaf(data->name, path)) {
-	    TRACE(("is_leaf: %s vs %s\n", data->name, path))
-		delink(data);
+	    TRACE(("is_leaf: %s vs %s\n", data->name, path));
+	    delink(data);
 	} else if (can_be_merged(data->name)
-	    && can_be_merged(path)) {
+		   && can_be_merged(path)) {
 	    size_t len1 = strlen(data->name);
 	    size_t len2 = strlen(path);
 	    unsigned n;
@@ -352,14 +358,14 @@ merge_name(DATA * data, char *path)
 
 	    delink(data);
 	    TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
-		    __LINE__, prefix_opt, matched, diff))
+		   __LINE__, prefix_opt, matched, diff));
 	} else if (!can_be_merged(path)) {
-	    TRACE(("merge @%d\n", __LINE__))
+	    TRACE(("merge @%d\n", __LINE__));
 	    /* must not merge, retain existing name */
-		path = data->name;
+	    path = data->name;
 	} else {
-	    TRACE(("merge @%d\n", __LINE__))
-		delink(data);
+	    TRACE(("merge @%d\n", __LINE__));
+	    delink(data);
 	}
     } else if (!can_be_merged(path)) {
 	path = data->name;
@@ -372,20 +378,36 @@ begin_data(DATA * p)
 {
     if (!can_be_merged(p->name)
 	&& strchr(p->name, PATHSEP) != 0) {
-	TRACE(("begin_data:HAVE_PATH\n"))
-	    return HAVE_PATH;
+	TRACE(("begin_data:HAVE_PATH\n"));
+	return HAVE_PATH;
     }
-    TRACE(("begin_data:HAVE_GENERIC\n"))
-	return HAVE_GENERIC;
+    TRACE(("begin_data:HAVE_GENERIC\n"));
+    return HAVE_GENERIC;
+}
+
+static char *
+skip_options(char *params)
+{
+    while (*params != '\0') {
+	while (isspace(*params))
+	    params++;
+	if (*params == '-') {
+	    while (isgraph(*params))
+		params++;
+	} else {
+	    break;
+	}
+    }
+    return params;
 }
 
 static void
 do_file(FILE * fp)
 {
-    DATA dummy, *this = &dummy;
+    DATA dummy, *that = &dummy;
     char buffer[BUFSIZ];
     int ok = HAVE_NOTHING;
-    register char *s;
+    char *s;
 
     dummy.name = "";
     dummy.ins =
@@ -432,8 +454,8 @@ do_file(FILE * fp)
 		}
 		if (found) {
 		    blip('.');
-		    this = new_data(path);
-		    this->cmt = Only;
+		    that = new_data(path);
+		    that->cmt = Only;
 		    ok = HAVE_NOTHING;
 		}
 	    }
@@ -445,26 +467,27 @@ do_file(FILE * fp)
 	     * pathname of the files; some put only the leaf names.
 	     */
 	case 'I':
-	    if (!match(buffer, "Index: "))
-		break;
-	    s = strrchr(buffer, BLANK);		/* last token is name */
-	    blip('.');
-	    this = new_data(s + 1);
-	    ok = begin_data(this);
+	    if (match(buffer, "Index: ")) {
+		s = strrchr(buffer, BLANK);	/* last token is name */
+		blip('.');
+		that = new_data(s + 1);
+		ok = begin_data(that);
+	    }
 	    break;
 
 	case 'd':		/* diff command trace */
-	    if (!match(buffer, "diff "))
-		break;
-	    s = strrchr(buffer, BLANK);
-	    blip('.');
-	    this = new_data(s + 1);
-	    ok = begin_data(this);
+	    if (match(buffer, "diff ")
+		&& *(s = skip_options(buffer + 5)) != '\0') {
+		s = strrchr(buffer, BLANK);
+		blip('.');
+		that = new_data(s + 1);
+		ok = begin_data(that);
+	    }
 	    break;
 
 	case '*':
-	    TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer))
-		if (!(ok & HAVE_PATH)) {
+	    TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer));
+	    if (!(ok & HAVE_PATH)) {
 		char fname[BUFSIZ];
 		char skip[BUFSIZ];
 		char wday[BUFSIZ], mmm[BUFSIZ];
@@ -475,41 +498,41 @@ do_file(FILE * fp)
 		 * accept filenames containing spaces.
 		 */
 		if (sscanf(buffer,
-			"*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
-			fname,
-			wday, mmm, &ddd,
-			&hour, &minute, &second, &year) == 8
+			   "*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
+			   fname,
+			   wday, mmm, &ddd,
+			   &hour, &minute, &second, &year) == 8
 		    || (sscanf(buffer,
-			    "*** %[^\t]\t%d/%d/%d %d:%d:%d",
-			    fname,
-			    &year, &month, &day,
-			    &hour, &minute, &second) == 7
+			       "*** %[^\t]\t%d/%d/%d %d:%d:%d",
+			       fname,
+			       &year, &month, &day,
+			       &hour, &minute, &second) == 7
 			&& !version_num(fname))
 		    || sscanf(buffer,
-			"*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
-			fname,
-			skip,
-			wday, mmm, &ddd,
-			&hour, &minute, &second, &year) == 9
+			      "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
+			      fname,
+			      skip,
+			      wday, mmm, &ddd,
+			      &hour, &minute, &second, &year) == 9
 		    || (sscanf(buffer,
-			    "*** %[^\t ]%[\t ]%d/%d/%d %d:%d:%d",
-			    fname,
-			    skip,
-			    &year, &month, &day,
-			    &hour, &minute, &second) == 8
+			       "*** %[^\t ]%[\t ]%d/%d/%d %d:%d:%d",
+			       fname,
+			       skip,
+			       &year, &month, &day,
+			       &hour, &minute, &second) == 8
 			&& !version_num(fname))
 		    || (sscanf(buffer,
-			    "*** %[^\t ]%[\t ]",
-			    fname,
-			    skip) == 1
+			       "*** %[^\t ]%[\t ]",
+			       fname,
+			       skip) == 1
 			&& !version_num(fname)
 			&& !contain_any(fname, "*")
 			&& !edit_range(fname))
 		    ) {
-		    s = merge_name(this, fname);
-		    this = new_data(s);
-		    ok = begin_data(this);
-		    TRACE(("after merge:%d:%s\n", ok, s))
+		    s = merge_name(that, fname);
+		    that = new_data(s);
+		    ok = begin_data(that);
+		    TRACE(("after merge:%d:%s\n", ok, s));
 		}
 	    }
 	    break;
@@ -521,7 +544,7 @@ do_file(FILE * fp)
 	case '>':
 	    if (!ok)
 		break;
-	    this->ins += 1;
+	    that->ins += 1;
 	    break;
 
 	case '-':
@@ -533,13 +556,13 @@ do_file(FILE * fp)
 	case '<':
 	    if (!ok)
 		break;
-	    this->del += 1;
+	    that->del += 1;
 	    break;
 
 	case '!':
 	    if (!ok)
 		break;
-	    this->mod += 1;
+	    that->mod += 1;
 	    break;
 
 	    /* Expecting "Binary files XXX and YYY differ" */
@@ -552,8 +575,8 @@ do_file(FILE * fp)
 		    *s = EOS;
 		    s = strrchr(buffer, BLANK);
 		    blip('.');
-		    this = new_data(s + 1);
-		    this->cmt = Binary;
+		    that = new_data(s + 1);
+		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
 		}
 	    }
@@ -593,7 +616,7 @@ plot_num(long num_value, int c, long extra)
 static void
 summarize(void)
 {
-    register DATA *p;
+    DATA *p;
     long total_ins = 0, total_del = 0, total_mod = 0, temp;
     int num_files = 0, shortest_name = -1, longest_name = -1, prefix_len = -1;
 
@@ -660,9 +683,9 @@ summarize(void)
 
     for (p = all_data; p; p = p->link) {
 	printf("%s %-*.*s|",
-	    comment_opt,
-	    name_wide, name_wide,
-	    p->name + (prefix_opt >= 0 ? p->base : prefix_len));
+	       comment_opt,
+	       name_wide, name_wide,
+	       p->name + (prefix_opt >= 0 ? p->base : prefix_len));
 	switch (p->cmt) {
 	default:
 	case Normal:
@@ -705,9 +728,11 @@ is_compressed(char *name)
 	verb = "compress -dc %s";
     } else if (len > 3 && !strcmp(name + len - 3, ".gz")) {
 	verb = "gzip -dc %s";
+    } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
+	verb = "bzip2 -dc %s";
     }
     if (verb != 0) {
-	result = malloc(strlen(verb) + len);
+	result = (char *)malloc(strlen(verb) + len);
 	sprintf(result, verb, name);
     }
     return result;
@@ -734,7 +759,7 @@ usage(void)
 	"  -w NUM  specify maximum width of the output (default: 80)",
 	"  -V      prints the version number"
     };
-    register unsigned j;
+    unsigned j;
     for (j = 0; j < sizeof(msg) / sizeof(msg[0]); j++)
 	fprintf(stderr, "%s\n", msg[j]);
     exit(EXIT_FAILURE);
@@ -743,7 +768,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-    register int j;
+    int j;
     char version[80];
 
     max_width = 80;

@@ -25,4 +25,4 @@
  bin/mc/files.c                      |    2 +-
  malloc.c                            |   12 +++++-------
  pch.c                               |    2 +-
- 27 files changed, 68 insertions, 36 deletions
+ 27 files changed, 68 insertions(+), 36 deletions(-)

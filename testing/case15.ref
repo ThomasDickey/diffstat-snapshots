@@ -10,4 +10,4 @@
  debian/rc.boot       |   58 +++++++++++++++++++++++++++++++++
  debian/rules         |   89 +++++++++++++++++++++++++++++++++++++++++++++++++++
  debian/substvars     |    1 
- 12 files changed, 375 insertions, 19 deletions
+ 12 files changed, 375 insertions(+), 19 deletions(-)

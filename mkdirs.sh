@@ -1,15 +1,13 @@
-#! /bin/sh
+#!/bin/sh
 # mkinstalldirs --- make directory hierarchy
 # Author: Noah Friedman <friedman@prep.ai.mit.edu>
 # Created: 1993-05-16
 # Last modified: 1994-03-25
 # Public domain
-#
 
 errstatus=0
-umask 022
 
-for file in ${1+"$@"} ; do
+for file in ${1+"$@"} ; do 
    set fnord `echo ":$file" | sed -ne 's/^:\//#/;s/^://;s/\// /g;s/^#/\//;p'`
    shift
 
@@ -22,10 +20,7 @@ for file in ${1+"$@"} ; do
 
      if test ! -d "$pathcomp"; then
         echo "mkdir $pathcomp" 1>&2
-        case "$pathcomp" in
-          [a-zA-Z]: )  ;;               # DOSISH systems
-          * )          mkdir "$pathcomp" || errstatus=$? ;;
-        esac
+        mkdir "$pathcomp" || errstatus=$?
      fi
 
      pathcomp="$pathcomp/"
