@@ -1,5 +1,12 @@
+/******************************************************************************
+ * Copyright (c) 1994 by Thomas E. Dickey.  All Rights Reserved.              *
+ *                                                                            *
+ * You may freely copy or redistribute this software, so long as there is no  *
+ * profit made from its use, sale trade or reproduction. You may not change   *
+ * this copyright notice, and it must be included in any copy made.           *
+ ******************************************************************************/
 #if	!defined(NO_IDENT)
-static	char	*Id = "$Id: diffstat.c,v 1.9 1994/06/12 23:34:07 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.12 1994/06/13 00:43:20 tom Exp $";
 #endif
 
 /*
@@ -7,7 +14,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.9 1994/06/12 23:34:07 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
- *		12 Jun 1994, recognize unified diff.
+ *		12 Jun 1994, recognize unified diff, and output of makepatch.
  *		04 Oct 1993, merge multiple diff-files, busy message when the
  *			     output is piped to a file.
  *
@@ -25,6 +32,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.9 1994/06/12 23:34:07 tom Exp $";
 
 #if HAVE_STDLIB_H
 #include <stdlib.h>
+#else
+extern	int	atoi();
 #endif
 
 #if HAVE_UNISTD_H
@@ -61,9 +70,9 @@ extern	int	optind;
 
 /******************************************************************************/
 
-#define EOS '\0'
-
-#define	PLOT_WIDTH	(max_width - name_wide - 9)
+#define PATHSEP '/'
+#define EOS     '\0'
+#define BLANK   ' '
 
 typedef	enum comment { Normal, Only, Binary } Comment;
 
@@ -78,9 +87,23 @@ typedef	struct	_data	{
 
 static	DATA	*all_data;
 static	int	piped_output;
-static	int	name_wide;
-static	int	max_width;
+static	int	max_width;	/* the specified width-limit */
+static	int	name_wide;	/* the amount reserved for filenames */
+static	int	plot_width;	/* the amount left over for histogram */
 
+/******************************************************************************/
+#if	__STDC__
+static	void	failed (char *s);
+static	void	blip (int c);
+static	char *	new_string(char *s);
+static	DATA *	new_data(char *name);
+static	int	match(char *s, char *p);
+static	void	do_file(FILE *fp);
+static	void	plot(long num, long max, int c);
+static	void	summarize(void);
+static	void	usage(void);
+	int	main(int argc, char *argv[]);
+#endif
 /******************************************************************************/
 
 static
@@ -141,7 +164,7 @@ DATA *	new_data(name)
 
 /* like strncmp, but without the 3rd argument */
 static
-int	match(s,p)
+int	match(s, p)
 	char	*s;
 	char	*p;
 {
@@ -191,7 +214,7 @@ void	do_file(fp)
 				for (s = path; *s != EOS; s++) {
 					if (match(s, ": ")) {
 						found = TRUE;
-						*s++ = '/';
+						*s++ = PATHSEP;
 						while ((s[0] = s[1]) != EOS)
 							s++;
 						break;
@@ -209,7 +232,7 @@ void	do_file(fp)
 		case 'I':	/* Index (e.g., from makepatch) */
 			if (!match(buffer, "Index: "))
 				break;
-			if ((s = strrchr(buffer, ' ')) != 0) {
+			if ((s = strrchr(buffer, BLANK)) != 0) {
 				blip('.');
 				this = new_data(s+1);
 				ok = TRUE;
@@ -219,7 +242,7 @@ void	do_file(fp)
 		case 'd':	/* diff command trace */
 			if (!match(buffer, "diff "))
 				break;
-			if ((s = strrchr(buffer, ' ')) != 0) {
+			if ((s = strrchr(buffer, BLANK)) != 0) {
 				blip('.');
 				this = new_data(s+1);
 				ok = TRUE;
@@ -238,7 +261,7 @@ void	do_file(fp)
 				    wday, mmm, &ddd,
 				    &hour, &minute, &second, &year) == 8) {
 					ok = -TRUE;
-					if (!(s = strrchr(fname, '/')))
+					if (!(s = strrchr(fname, PATHSEP)))
 						s = fname;
 					else
 						s++;
@@ -285,11 +308,12 @@ void	do_file(fp)
 }
 
 static
-void	plot(num,max,c)
-	long	num, max;
+void	plot(num, max, c)
+	long	num;
+	long	max;
 	int	c;
 {
-	num = (((PLOT_WIDTH * num) + (PLOT_WIDTH/2)) / max);
+	num = (((plot_width * num) + (plot_width/2)) / max);
 	while (--num >= 0)
 		(void)putchar(c);
 }
@@ -319,6 +343,9 @@ void	summarize()
 	}
 
 	name_wide++;	/* make sure it's nonzero */
+	plot_width = (max_width - name_wide - 8);
+	if (plot_width < 10)
+		plot_width = 10;
 
 	for (p = all_data; p; p = p->link) {
 		printf(" %-*.*s|", name_wide, name_wide, p->name);
@@ -348,11 +375,16 @@ void	usage()
 	static	char	*msg[] = {
 	"Usage: diffstat [options] [files]",
 	"",
-	"Options:"
+	"Reads from one or more input files which contain output from 'diff',",
+	"producing a histgram of total lines changed for each file referenced.",
+	"If no filename is given on the command line, reads from stdin.",
+	"",
+	"Options:",
+	"  -w NUM  specify maximum width of the output (default: 80)"
 	};
 	register int j;
 	for (j = 0; j < sizeof(msg)/sizeof(msg[0]); j++)
-		fprintf(stderr, "%s\n", msg);
+		fprintf(stderr, "%s\n", msg[j]);
 	exit (EXIT_FAILURE);
 }
 
@@ -360,7 +392,6 @@ int	main(argc, argv)
 	int	argc;
 	char	*argv[];
 {
-	FILE	*fp;
 	register int	j;
 
 	max_width = 80;
