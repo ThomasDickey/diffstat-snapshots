@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.9 2000/03/29 23:24:42 tom Exp $
+.\" $Id: diffstat.1,v 1.10 2000/03/30 00:07:17 tom Exp $
 .de DS
 .RS
 .nf
@@ -81,6 +81,9 @@ If no filename is given on the command line,
 .B \-c
 prefix each line of output with "#", making it a comment-line for shell
 scripts.
+.TP
+.BI \-f " format"
+specify 0 for concise, 1 for normal output.
 .TP
 .BI \-n " number"
 specify the minimum width used for filenames.
