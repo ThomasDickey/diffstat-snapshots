@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.5 2002/08/20 22:48:22 tom Exp $
+# $Id: run_test.sh,v 1.6 2003/01/04 19:33:15 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -28,7 +28,7 @@ do
 				rm -f $N.out
 			else
 				echo '?? fail: '$N
-				diff -b $N.out $N.ref
+				diff -b $N.ref $N.out
 			fi
 		else
 			echo '** save: '$N

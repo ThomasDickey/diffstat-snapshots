@@ -9,9 +9,6 @@
  intro.man    |   27 ++--
  x11.man      |  100 ++++++++++-----
  pdckbd.c     |   28 ++++
- wccdos.lrf   |    0 
- wccdos16.mak |    0 
- wccdos4g.mak |    0 
  install-sh   |   26 +++
  gccos2.mak   |   14 +-
  pdckbd.c     |   28 ++++
@@ -30,4 +27,4 @@
  pdckbd.c     |    4 
  pdcscrn.c    |    3 
  pdcsetsc.c   |   11 -
- 32 files changed, 847 insertions(+), 327 deletions(-)
+ 29 files changed, 847 insertions(+), 327 deletions(-)

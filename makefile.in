@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.14 2000/03/29 23:57:00 tom Exp $
+# $Id: makefile.in,v 1.18 2003/01/04 18:30:39 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -14,62 +14,56 @@ INSTALL		= @INSTALL@
 INSTALL_PROGRAM	= @INSTALL_PROGRAM@
 INSTALL_DATA	= @INSTALL_DATA@
 
+CFLAGS		= @CFLAGS@ @EXTRA_CFLAGS@
+CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H @CPPFLAGS@
+
 LIBS		= @LIBS@
-CFLAGS		= @CFLAGS@
 LDFLAGS		= @LDFLAGS@
 
-install_prefix	=
+PROG_EXT	= @PROG_EXT@
+
+DESTDIR		= @DESTDIR@
 prefix		= @prefix@
 exec_prefix	= @exec_prefix@
 
-bindir		= $(install_prefix)$(exec_prefix)/bin
-libdir		= $(install_prefix)$(exec_prefix)/lib
-mandir		= $(install_prefix)$(prefix)/man/man1
-manext		= 1
+bindir		= $(DESTDIR)@bindir@
+mandir		= $(DESTDIR)@mandir@
 
 #### End of system configuration section. ####
 
 SHELL		= /bin/sh
 
-CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H
+man1dir		= $(mandir)/man1
+manext		= 1
 
-LDFLAGS		= 
+PROG		= $(THIS)$(PROG_EXT)
 
 SRC = CHANGES \
 	README $(THIS).c $(THIS).1 \
-	config_h.in install.sh mkdirs.sh makefile.in configure.in
+	config_h.in install.sh mkdirs.sh makefile.in configure.in aclocal.m4
 
-DISTFILES = configure $(SRC)
+DISTFILES = configure config.guess config.sub $(SRC)
 
-all:	$(THIS)
+all:	$(PROG)
 
-$(THIS): diffstat.c
-	$(LINK) $(LDFLAGS) -o $(THIS) $(CPPFLAGS) $(CFLAGS) diffstat.c $(LIBS)
+$(PROG): diffstat.c
+	@ECHO_LD@$(LINK) $(LDFLAGS) -o $(PROG) $(CPPFLAGS) $(CFLAGS) diffstat.c $(LIBS)
 
 install: all installdirs
-	$(INSTALL_PROGRAM) $(THIS) $(bindir)/$(THIS)
-	$(INSTALL_DATA) $(srcdir)/$(THIS).1 $(mandir)/$(THIS).$(manext)
+	$(INSTALL_PROGRAM) $(PROG) $(bindir)/$(PROG)
+	$(INSTALL_DATA) $(srcdir)/$(THIS).1 $(man1dir)/$(THIS).$(manext)
 
 installdirs:
-	$(SHELL) ${srcdir}/mkdirs.sh $(bindir) $(libdir) $(mandir)
+	$(SHELL) ${srcdir}/mkdirs.sh $(bindir) $(libdir) $(man1dir)
 
 uninstall:
-	rm -f $(bindir)/$(THIS) $(mandir)/$(THIS).$(manext)
-
-makefile: makefile.in config.status
-	./config.status
-
-config.h: configure
-	./configure
-
-config.status: configure
-	./config.status --recheck
+	rm -f $(bindir)/$(PROG) $(man1dir)/$(THIS).$(manext)
 
 mostlyclean:
 	rm -f *.o core *~ *.out *.BAK *.atac
 
 clean: mostlyclean
-	rm -f $(THIS)
+	rm -f $(PROG)
 
 distclean: clean
 	rm -f makefile config.log config.cache config.status config.h
@@ -77,7 +71,7 @@ distclean: clean
 realclean: distclean
 	rm -f tags TAGS # don't remove configure!
 
-check:
+check:	$(PROG)
 	cd testing && run_test.sh
 
 lint:

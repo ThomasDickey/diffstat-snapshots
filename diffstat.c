@@ -1,5 +1,6 @@
+//#define DEBUG
 /******************************************************************************
- * Copyright 1994-2001,2002 by Thomas E. Dickey                               *
+ * Copyright 1994-2002,2003 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +21,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.31 2002/08/20 23:38:52 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.32 2003/01/05 01:16:53 tom Exp $";
 #endif
 
 /*
@@ -28,6 +29,13 @@ static char *Id = "$Id: diffstat.c,v 1.31 2002/08/20 23:38:52 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		04 Jan 2003, improve tracking of chunks in unified diff, in case
+ *			     the original files contained a '+' or '-' in the
+ *			     first column (Debian #155000).  Add -v option
+ *			     (Debian #170947).  Modify to allocate buffers big
+ *			     enough for long input lines.  Do additional
+ *			     merging to handle unusual Index/diff constructs in
+ *			     recent makepatch script.
  *		20 Aug 2002, add -u option to tell diffstat to preserve the
  *			     order of filenames as given rather than sort them
  *			     (request by H Peter Anvin <hpa@zytor.com>).  Add
@@ -67,7 +75,7 @@ static char *Id = "$Id: diffstat.c,v 1.31 2002/08/20 23:38:52 tom Exp $";
  *		of the insertions/deletions/modifications per-file.
  */
 
-#if	defined(HAVE_CONFIG_H)
+#if defined(HAVE_CONFIG_H)
 #include <config.h>
 #endif
 
@@ -135,6 +143,7 @@ extern int optind;
 #define PATHSEP '/'
 #endif
 
+#define SQUOTE  '\''
 #define EOS     '\0'
 #define BLANK   ' '
 
@@ -171,10 +180,11 @@ static int format_opt = 1;
 static int max_width;		/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
 static int name_wide;		/* the amount reserved for filenames */
-static int piped_output;
+static int show_progress;	/* if not writing to tty, show progress */
 static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
 static int sort_names = 1;	/* true if we sort filenames */
+static int verbose = 0;		/* -q/-v options */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
 /******************************************************************************/
@@ -189,7 +199,7 @@ failed(char *s)
 static void
 blip(int c)
 {
-    if (piped_output) {
+    if (show_progress) {
 	(void) fputc(c, stderr);
 	(void) fflush(stderr);
     }
@@ -292,12 +302,31 @@ edit_range(char *s)
     return (sscanf(s, "%d,%d%c", &first, &last, temp) == 2);
 }
 
+/*
+ * Decode a range for unified diff.  Oddly, the comments in diffutils code
+ * claim that both numbers are line-numbers.  However, inspection of the output
+ * shows that the numbers are a line-number followed by a count.
+ */
+static int
+decode_range(char *s, int *first, int *second)
+{
+    char check;
+    if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
+	return 1;
+    } else if (sscanf(s, "%d%c", first, &check) == 1) {
+	*second = *first;	/* diffutils 2.7 does this */
+	return 1;
+    }
+    return 0;
+}
+
 static int
 HadDiffs(DATA * data)
 {
     return data->ins != 0
 	|| data->del != 0
-	|| data->mod != 0;
+	|| data->mod != 0
+	|| data->cmt != Normal;
 }
 
 /*
@@ -345,10 +374,14 @@ do_merging(DATA * data, char *path)
 	    /* strip suffixes such as ".orig", ".bak" */
 	    if (len1 > len2) {
 		if (!strncmp(data->name, path, len2)) {
+		    TRACE(("trimming data '%s' to '%.*s'\n",
+			   data->name, (int) len2, data->name));
 		    data->name[len1 = len2] = EOS;
 		}
 	    } else if (len1 < len2) {
 		if (!strncmp(data->name, path, len1)) {
+		    TRACE(("trimming path '%s' to '%.*s'\n",
+			   path, (int) len1, path));
 		    path[len2 = len1] = EOS;
 		}
 	    }
@@ -371,7 +404,7 @@ do_merging(DATA * data, char *path)
 	    TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
 		   __LINE__, prefix_opt, matched, diff));
 	} else if (!can_be_merged(path)) {
-	    TRACE(("merge @%d\n", __LINE__));
+	    TRACE(("do not merge, retain @%d\n", __LINE__));
 	    /* must not merge, retain existing name */
 	    path = data->name;
 	} else {
@@ -381,6 +414,7 @@ do_merging(DATA * data, char *path)
     } else if (!can_be_merged(path)) {
 	path = data->name;
     }
+    TRACE(("...do_merging %s\n", path));
     return path;
 }
 
@@ -397,11 +431,18 @@ begin_data(DATA * p)
 }
 
 static char *
+skip_blanks(char *s)
+{
+    while (isspace(*s))
+	++s;
+    return s;
+}
+
+static char *
 skip_options(char *params)
 {
     while (*params != '\0') {
-	while (isspace(*params))
-	    params++;
+	params = skip_blanks(params);
 	if (*params == '-') {
 	    while (isgraph(*params))
 		params++;
@@ -412,14 +453,80 @@ skip_options(char *params)
     return params;
 }
 
+/*
+ * Strip single-quotes from a name (needed for recent makepatch versions).
+ */
+static void
+dequote(char *s)
+{
+    int len = strlen(s);
+
+    if (*s == SQUOTE && len > 2 && s[len - 1] == SQUOTE) {
+	strcpy(s, s + 1);
+	s[len - 2] = EOS;
+    }
+}
+
+/*
+ * Allocate a fixed-buffer
+ */
+static void
+fixed_buffer(char **buffer, size_t want)
+{
+    if ((*buffer = malloc(want)) == 0)
+	failed("malloc");
+}
+
+/*
+ * Reallocate a fixed-buffer
+ */
+static void
+adjust_buffer(char **buffer, size_t want)
+{
+    if ((*buffer = realloc(*buffer, want)) == 0)
+	failed("realloc");
+}
+
+/*
+ * Read until newline or end-of-file, allocating the line-buffer so it is long
+ * enough for the input.
+ */
+static int
+get_line(char **buffer, size_t *have, FILE *fp)
+{
+    int ch;
+    size_t used = 0;
+
+    while ((ch = fgetc(fp)) != EOF) {
+	if (used + 2 > *have) {
+	    adjust_buffer(buffer, *have *= 2);
+	}
+	(*buffer)[used++] = ch;
+	if (ch == '\n')
+	    break;
+    }
+    (*buffer)[used] = '\0';
+    return (used != 0);
+}
+
 #define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
 
 static void
-do_file(FILE * fp)
+do_file(FILE *fp)
 {
     DATA dummy, *that = &dummy;
-    char buffer[BUFSIZ];
+    char *buffer = 0;
+    char *b_fname = 0;
+    char *b_temp1 = 0;
+    char *b_temp2 = 0;
+    char *b_temp3 = 0;
+    size_t length = 0;
+    size_t fixed = 0;
     int ok = HAVE_NOTHING;
+    int marker = -1;
+    int unified = 0;
+    int old_unify = 0;
+    int new_unify = 0;
     char *s;
 
     dummy.name = "";
@@ -427,7 +534,24 @@ do_file(FILE * fp)
     dummy.del = 0;
     dummy.mod = 0;
 
-    while (fgets(buffer, sizeof(buffer), fp)) {
+    fixed_buffer(&buffer, fixed = length = BUFSIZ);
+    fixed_buffer(&b_fname, length);
+    fixed_buffer(&b_temp1, length);
+    fixed_buffer(&b_temp2, length);
+    fixed_buffer(&b_temp3, length);
+
+    while (get_line(&buffer, &length, fp)) {
+	/*
+	 * Adjust size of fixed-buffers so that a sscanf cannot overflow.
+	 */
+	if (length > fixed) {
+	    fixed = length;
+	    adjust_buffer(&b_fname, length);
+	    adjust_buffer(&b_temp1, length);
+	    adjust_buffer(&b_temp2, length);
+	    adjust_buffer(&b_temp3, length);
+	}
+
 	/*
 	 * Trim trailing blanks (e.g., newline)
 	 */
@@ -439,12 +563,61 @@ do_file(FILE * fp)
 	}
 
 	/*
-	 * The markers for unified diff are a little different from the
-	 * normal context-diff.  Also, the edit-lines in a unified diff
-	 * won't have a space in column 2.
+	 * The markers for unified diff are a little different from the normal
+	 * context-diff.  Also, the edit-lines in a unified diff won't have a
+	 * space in column 2.  Because of the missing space, we have to count
+	 * lines to ensure we do not confuse the marker lines.
 	 */
-	if (match(buffer, "+++ ")
-	    || match(buffer, "--- "))
+	marker = -1;
+	if (match(buffer, "*** ")) {
+	    marker = 0;
+	} else if ((old_unify + new_unify) == 0 && match(buffer, "--- ")) {
+	    marker = unified = 1;
+	} else if ((old_unify + new_unify) == 0 && match(buffer, "+++ ")) {
+	    marker = unified = 2;
+	} else if (unified == 2) {
+	    unified = 0;
+	    if (*buffer == '@') {
+		int old_base, new_base, old_size, new_size;
+		char test_at;
+
+		old_unify = new_unify = 0;
+		if (sscanf(buffer, "@@ -%[0-9,] +%[0-9,] @%c",
+			   b_temp1,
+			   b_temp2,
+			   &test_at) == 3
+		    && test_at == '@'
+		    && decode_range(b_temp1, &old_base, &old_size)
+		    && decode_range(b_temp2, &new_base, &new_size)) {
+		    old_unify = old_size;
+		    new_unify = new_size;
+		    unified = -1;
+		}
+	    }
+	} else if (old_unify + new_unify) {
+	    switch (*buffer) {
+	    case '-':
+		if (old_unify)
+		    --old_unify;
+		break;
+	    case '+':
+		if (new_unify)
+		    --new_unify;
+		break;
+	    case ' ':
+		if (old_unify)
+		    --old_unify;
+		if (new_unify)
+		    --new_unify;
+		break;
+	    default:
+		old_unify = new_unify = 0;
+		break;
+	    }
+	} else {
+	    unified = 0;
+	}
+	if (marker > 0)
 	    (void) strncpy(buffer, "***", 3);
 
 	/*
@@ -482,8 +655,11 @@ do_file(FILE * fp)
 	case 'I':
 	    if (match(buffer, "Index: ")) {
 		s = strrchr(buffer, BLANK);	/* last token is name */
+		s = skip_blanks(s);
+		dequote(s);
 		blip('.');
-		that = new_data(s + 1);
+		s = do_merging(that, s);
+		that = new_data(s);
 		ok = begin_data(that);
 	    }
 	    break;
@@ -492,8 +668,11 @@ do_file(FILE * fp)
 	    if (match(buffer, "diff ")
 		&& *(s = skip_options(buffer + 5)) != '\0') {
 		s = strrchr(buffer, BLANK);
+		s = skip_blanks(s);
+		dequote(s);
 		blip('.');
-		that = new_data(s + 1);
+		s = do_merging(that, s);
+		that = new_data(s);
 		ok = begin_data(that);
 	    }
 	    break;
@@ -501,9 +680,6 @@ do_file(FILE * fp)
 	case '*':
 	    TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer));
 	    if (!(ok & HAVE_PATH)) {
-		char fname[BUFSIZ];
-		char skip[BUFSIZ];
-		char wday[BUFSIZ], mmm[BUFSIZ];
 		int ddd, hour, minute, second;
 		int day, month, year;
 		char yrmon, monday;
@@ -513,39 +689,39 @@ do_file(FILE * fp)
 		 */
 		if (sscanf(buffer,
 			   "*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
-			   fname,
-			   wday, mmm, &ddd,
+			   b_fname,
+			   b_temp2, b_temp3, &ddd,
 			   &hour, &minute, &second, &year) == 8
 		    || (sscanf(buffer,
 			       "*** %[^\t]\t%d%c%d%c%d %d:%d:%d",
-			       fname,
+			       b_fname,
 			       &year, &yrmon, &month, &monday, &day,
 			       &hour, &minute, &second) == 9
 			&& date_delims(yrmon, monday)
-			&& !version_num(fname))
+			&& !version_num(b_fname))
 		    || sscanf(buffer,
 			      "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
-			      fname,
-			      skip,
-			      wday, mmm, &ddd,
+			      b_fname,
+			      b_temp1,
+			      b_temp2, b_temp3, &ddd,
 			      &hour, &minute, &second, &year) == 9
 		    || (sscanf(buffer,
 			       "*** %[^\t ]%[\t ]%d%c%d%c%d %d:%d:%d",
-			       fname,
-			       skip,
+			       b_fname,
+			       b_temp1,
 			       &year, &yrmon, &month, &monday, &day,
 			       &hour, &minute, &second) == 10
 			&& date_delims(yrmon, monday)
-			&& !version_num(fname))
+			&& !version_num(b_fname))
 		    || (sscanf(buffer,
 			       "*** %[^\t ]%[\t ]",
-			       fname,
-			       skip) == 1
-			&& !version_num(fname)
-			&& !contain_any(fname, "*")
-			&& !edit_range(fname))
+			       b_fname,
+			       b_temp1) == 1
+			&& !version_num(b_fname)
+			&& !contain_any(b_fname, "*")
+			&& !edit_range(b_fname))
 		    ) {
-		    s = do_merging(that, fname);
+		    s = do_merging(that, b_fname);
 		    that = new_data(s);
 		    ok = begin_data(that);
 		    TRACE(("after merge:%d:%s\n", ok, s));
@@ -554,7 +730,7 @@ do_file(FILE * fp)
 	    break;
 
 	case '+':
-	    if (buffer[1] == buffer[0])
+	    if (!unified && buffer[0] == buffer[1])
 		break;
 	    /* FALL-THRU */
 	case '>':
@@ -566,7 +742,7 @@ do_file(FILE * fp)
 	case '-':
 	    if (!ok)
 		break;
-	    if (buffer[1] == buffer[0])
+	    if (!unified && buffer[0] == buffer[1])
 		break;
 	    /* fall-thru */
 	case '<':
@@ -591,7 +767,7 @@ do_file(FILE * fp)
 		    *s = EOS;
 		    s = strrchr(buffer, BLANK);
 		    blip('.');
-		    that = new_data(s + 1);
+		    that = new_data(skip_blanks(s));
 		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
 		}
@@ -600,6 +776,14 @@ do_file(FILE * fp)
 	}
     }
     blip('\n');
+
+    if (buffer != 0) {
+	free(buffer);
+	free(b_fname);
+	free(b_temp1);
+	free(b_temp2);
+	free(b_temp3);
+    }
 }
 
 /*
@@ -770,11 +954,13 @@ usage(void)
 	"Options:",
 	"  -c      prefix each line with comment (#)",
 	"  -f NUM  format (0=concise, 1=normal)",
+	"  -k      do not merge filenames",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -u      do not sort the input list",
-	"  -w NUM  specify maximum width of the output (default: 80)",
+	"  -v      makes output more verbose",
 	"  -V      prints the version number"
+	"  -w NUM  specify maximum width of the output (default: 80)",
     };
     unsigned j;
     for (j = 0; j < sizeof(msg) / sizeof(msg[0]); j++)
@@ -789,10 +975,8 @@ main(int argc, char *argv[])
     char version[80];
 
     max_width = 80;
-    piped_output = !isatty(fileno(stdout))
-	&& isatty(fileno(stderr));
 
-    while ((j = getopt(argc, argv, "cf:kn:p:uw:V")) != EOF) {
+    while ((j = getopt(argc, argv, "cf:kn:p:uvVw:")) != EOF) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
@@ -812,19 +996,24 @@ main(int argc, char *argv[])
 	case 'u':
 	    sort_names = 0;
 	    break;
-	case 'w':
-	    max_width = atoi(optarg);
+	case 'v':
+	    verbose = 1;
 	    break;
 	case 'V':
 	    if (!sscanf(Id, "%*s %*s %s", version))
 		(void) strcpy(version, "?");
 	    printf("diffstat version %s\n", version);
 	    exit(EXIT_SUCCESS);
+	case 'w':
+	    max_width = atoi(optarg);
+	    break;
 	default:
 	    usage();
 	    /*NOTREACHED */
 	}
     }
+    show_progress = verbose && (!isatty(fileno(stdout))
+				&& isatty(fileno(stderr)));
 
     if (optind < argc) {
 	while (optind < argc) {
@@ -834,7 +1023,7 @@ main(int argc, char *argv[])
 	    char *command = is_compressed(name);
 	    if (command != 0) {
 		if ((fp = popen(command, "r")) != 0) {
-		    if (piped_output) {
+		    if (show_progress) {
 			(void) fprintf(stderr, "%s\n", name);
 			(void) fflush(stderr);
 		    }
@@ -845,7 +1034,7 @@ main(int argc, char *argv[])
 	    } else
 #endif
 	    if ((fp = fopen(name, "r")) != 0) {
-		if (piped_output) {
+		if (show_progress) {
 		    (void) fprintf(stderr, "%s\n", name);
 		    (void) fflush(stderr);
 		}
@@ -859,7 +1048,7 @@ main(int argc, char *argv[])
 	do_file(stdin);
     }
     summarize();
-#ifdef DEBUG
+#if defined(DEBUG) || defined(NO_LEAKS)
     while (all_data != 0) {
 	DATA *p = all_data;
 	all_data = all_data->link;

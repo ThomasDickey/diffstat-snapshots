@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994-2001,2002 by Thomas E. Dickey                               *
+.\" Copyright 1994-2002,2003 by Thomas E. Dickey                               *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.12 2002/08/20 23:24:47 tom Exp $
+.\" $Id: diffstat.1,v 1.13 2003/01/04 16:08:27 tom Exp $
 .de DS
 .RS
 .nf
@@ -33,7 +33,7 @@
 .SH NAME
 \fBdiffstat\fP \- make histogram from diff-output
 .SH USAGE
-\fBdiffstat\fI [options] [file-specifications]
+\fBdiffstat\fP\fI [options] [file-specifications]\fP
 .SH SYNOPSIS
 This program reads the output of \fBdiff\fP and displays a histogram
 of the insertions, deletions, and modifications per-file.
@@ -88,6 +88,11 @@ override the logic that strips common pathnames, simulating the \fBpatch\fP
 .TP
 .B \-u
 suppress the sorting of filenames in the report.
+.TP
+.B \-v
+show progress,
+e.g., if the output is redirected to a file,
+write progress messages to the standard error.
 .TP
 .B \-V
 prints the current version number
