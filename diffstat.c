@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.17 1995/05/06 14:00:58 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.18 1995/12/11 20:49:06 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.17 1995/05/06 14:00:58 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		11 Dec 1995, mods to accommodate diffs against /dev/null or
+ *			     /tmp/XXX (tempfiles).
  *		06 May 1995, limit scaling -- only shrink-to-fit.
  *		29 Apr 1995, recognize 'rcsdiff -u' format.
  *		26 Dec 1994, strip common pathname-prefix.
@@ -113,8 +115,10 @@ static	void	failed (char *s);
 static	void	blip (int c);
 static	char *	new_string(char *s);
 static	DATA *	new_data(char *name);
+static	void	delink (DATA *p);
 static	int	match(char *s, char *p);
 static	int	version_num(char *s);
+static	int	HadDiffs (DATA *p);
 static	void	do_file(FILE *fp);
 static	long	plot_num(long num_value, int c, long extra);
 static	void	summarize(void);
@@ -179,6 +183,25 @@ DATA *	new_data(name)
 	return r;
 }
 
+/*
+ * Remove a unneeded data item from the linked list
+ */
+static
+void	delink(data)
+	DATA	*data;
+{
+	register DATA *p, *q, *r;
+	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+		if (p == data) {
+			if (q != 0)
+				q->link = p->link;
+			else
+				all_data = p->link;
+			return;
+		}
+	}
+}
+
 /* like strncmp, but without the 3rd argument */
 static
 int	match(s, p)
@@ -207,6 +230,42 @@ int	version_num(s)
 }
 
 static
+int	HadDiffs(data)
+	DATA	*data;
+{
+	return data->ins
+	  ||   data->del
+	  ||   data->mod;
+}
+
+static
+char *	merge_name(data, path)
+	DATA	*data;
+	char	*path;
+{
+	if (!HadDiffs(data)) { /* the data was the first of 2 markers */
+		if (strcmp(data->name, "")
+		 && strcmp(data->name, "/dev/null")
+		 && strncmp(data->name, "/dev/tmp/", 9)) {
+			int	len1 = strlen(data->name);
+			int	len2 = strlen(path);
+			int	n;
+			int	matched = 0;
+			for (n = 1; n <= len1 && n <= len2; n++) {
+				if (data->name[len1-n] != path[len2-n])
+					break;
+				if (path[len2-n] == PATHSEP)
+					matched = n;
+			}
+			if (matched != 0)
+				path += len2 - n;
+		}
+		delink(data);
+	}
+	return path;
+}
+
+static
 void	do_file(fp)
 	FILE	*fp;
 {
@@ -215,6 +274,7 @@ void	do_file(fp)
 	int	ok = FALSE;
 	register char *s;
 
+	dummy.name = "";
 	dummy.ins =
 	dummy.del =
 	dummy.mod = 0;
@@ -306,10 +366,7 @@ void	do_file(fp)
 				  && !version_num(fname))
 				   ) {
 					ok = -TRUE;
-					if (!(s = strrchr(fname, PATHSEP)))
-						s = fname;
-					else
-						s++;
+					s = merge_name(this, fname);
 					this = new_data(s);
 				}
 			}
