@@ -1,3 +1,12 @@
+09-Nov-2003
+	diffstat 1.34
+
+	improve check for certain lines (not those that begin a chunk) that
+	begin with '-', treating all except "---" as a delete (report by
+	James Rowe <Jay@jnrowe.uklinux.net>).
+
+	minor updates to configure script.
+
 14-Feb-2003
 	diffstat 1.33
 
