@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.35 2004/11/09 02:13:34 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.36 2004/12/14 11:41:00 Eric.Blake Exp $";
 #endif
 
 /*
@@ -28,6 +28,12 @@ static char *Id = "$Id: diffstat.c,v 1.35 2004/11/09 02:13:34 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		14 Dec 2004, Fix allocation problems.  Open files in binary
+ *			     mode for reading.  Getopt returns -1, not
+ *			     necessarily EOF.  Add const where useful.  Use
+ *			     NO_IDENT where necessary.  malloc() comes from
+ *			     <stdlib.h> in standard systems (Patch by Eric
+ *			     Blake <ebb9@byu.net>.)
  *		08 Nov 2004, minor fix for resync of unified diffs checks for
  *			     range (line beginning with '@' without header
  *			     lines (successive lines beginning with "---" and
@@ -121,8 +127,6 @@ extern int isatty();
 
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
-#else
-extern char *malloc();
 #endif
 
 #ifdef HAVE_GETOPT_H
@@ -195,10 +199,20 @@ static long plot_scale;		/* the effective scale (1:maximum) */
 /******************************************************************************/
 
 static void
-failed(char *s)
+failed(const char *s)
 {
     perror(s);
     exit(EXIT_FAILURE);
+}
+
+/* malloc wrapper that never returns NULL */
+static void *
+xmalloc(size_t s)
+{
+    void *p;
+    if ((p = malloc(s)) == NULL)
+	failed("malloc");
+    return p;
 }
 
 static void
@@ -211,13 +225,13 @@ blip(int c)
 }
 
 static char *
-new_string(char *s)
+new_string(const char *s)
 {
-    return strcpy((char *) malloc((unsigned) (strlen(s) + 1)), s);
+    return strcpy((char *) xmalloc((size_t) (strlen(s) + 1)), s);
 }
 
 static DATA *
-new_data(char *name)
+new_data(const char *name)
 {
     DATA *p, *q, *r;
 
@@ -234,7 +248,7 @@ new_data(char *name)
 	if (sort_names && (cmp > 0))
 	    break;
     }
-    r = (DATA *) malloc(sizeof(DATA));
+    r = (DATA *) xmalloc(sizeof(DATA));
     if (q != 0)
 	q->link = r;
     else
@@ -252,8 +266,7 @@ new_data(char *name)
 }
 
 /*
- * Remove a unneeded data item from the linked list.  Don't free the name,
- * since we may want it in another context.
+ * Remove a unneeded data item from the linked list.  Free the name as well.
  */
 static void
 delink(DATA * data)
@@ -268,6 +281,7 @@ delink(DATA * data)
 		q->link = p->link;
 	    else
 		all_data = p->link;
+	    free(p->name);
 	    free(p);
 	    return;
 	}
@@ -276,7 +290,7 @@ delink(DATA * data)
 
 /* like strncmp, but without the 3rd argument */
 static int
-match(char *s, char *p)
+match(const char *s, const char *p)
 {
     int ok = 0;
 
@@ -292,7 +306,7 @@ match(char *s, char *p)
 }
 
 static int
-version_num(char *s)
+version_num(const char *s)
 {
     int main_ver, sub_ver;
     char temp[2];
@@ -303,7 +317,7 @@ version_num(char *s)
  * Check for a range of line-numbers, used in editing scripts.
  */
 static int
-edit_range(char *s)
+edit_range(const char *s)
 {
     int first, last;
     char temp[2];
@@ -317,7 +331,7 @@ edit_range(char *s)
  * shows that the numbers are a line-number followed by a count.
  */
 static int
-decode_range(char *s, int *first, int *second)
+decode_range(const char *s, int *first, int *second)
 {
     char check;
     if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
@@ -330,7 +344,7 @@ decode_range(char *s, int *first, int *second)
 }
 
 static int
-HadDiffs(DATA * data)
+HadDiffs(const DATA * data)
 {
     return data->ins != 0
 	|| data->del != 0
@@ -342,7 +356,7 @@ HadDiffs(DATA * data)
  * If the given path is not one of the "ignore" paths, then return true.
  */
 static int
-can_be_merged(char *path)
+can_be_merged(const char *path)
 {
     if (strcmp(path, "")
 	&& strcmp(path, "/dev/null")
@@ -352,7 +366,7 @@ can_be_merged(char *path)
 }
 
 static int
-is_leaf(char *leaf, char *path)
+is_leaf(const char *leaf, const char *path)
 {
     char *s;
 
@@ -428,7 +442,7 @@ do_merging(DATA * data, char *path)
 }
 
 static int
-begin_data(DATA * p)
+begin_data(const DATA * p)
 {
     if (!can_be_merged(p->name)
 	&& strchr(p->name, PATHSEP) != 0) {
@@ -485,8 +499,7 @@ dequote(char *s)
 static void
 fixed_buffer(char **buffer, size_t want)
 {
-    if ((*buffer = malloc(want)) == 0)
-	failed("malloc");
+    *buffer = xmalloc(want);
 }
 
 /*
@@ -924,7 +937,7 @@ summarize(void)
 
 #ifdef HAVE_POPEN
 static char *
-is_compressed(char *name)
+is_compressed(const char *name)
 {
     char *verb = 0;
     char *result = 0;
@@ -938,7 +951,7 @@ is_compressed(char *name)
 	verb = "bzip2 -dc %s";
     }
     if (verb != 0) {
-	result = (char *) malloc(strlen(verb) + len);
+	result = (char *) xmalloc(strlen(verb) + len);
 	sprintf(result, verb, name);
     }
     return result;
@@ -949,7 +962,7 @@ is_compressed(char *name)
 static void
 usage(FILE *fp)
 {
-    static char *msg[] =
+    static const char *msg[] =
     {
 	"Usage: diffstat [options] [files]",
 	"",
@@ -984,7 +997,7 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt(argc, argv, "ce:f:hkn:o:p:uvVw:")) != EOF) {
+    while ((j = getopt(argc, argv, "ce:f:hkn:o:p:uvVw:")) != -1) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
@@ -1019,7 +1032,9 @@ main(int argc, char *argv[])
 	    verbose = 1;
 	    break;
 	case 'V':
+#ifndef	NO_IDENT
 	    if (!sscanf(Id, "%*s %*s %s", version))
+#endif
 		(void) strcpy(version, "?");
 	    printf("diffstat version %s\n", version);
 	    return (EXIT_SUCCESS);
@@ -1048,11 +1063,11 @@ main(int argc, char *argv[])
 		    }
 		    do_file(fp);
 		    (void) pclose(fp);
-		    free(command);
 		}
+		free(command);
 	    } else
 #endif
-	    if ((fp = fopen(name, "r")) != 0) {
+	    if ((fp = fopen(name, "rb")) != 0) {
 		if (show_progress) {
 		    (void) fprintf(stderr, "%s\n", name);
 		    (void) fflush(stderr);

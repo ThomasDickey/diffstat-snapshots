@@ -1,3 +1,11 @@
+14-Dec-2004
+	diffstat 1.36
+
+	Fix allocation problems.  Open files in binary mode for reading. 
+	Getopt returns -1, not necessarily EOF.  Add const where useful.  Use
+	NO_IDENT where necessary.  malloc() comes from <stdlib.h> in standard
+	systems (Patch by Eric Blake <ebb9@byu.net>.)
+
 08-Nov-2004
 	diffstat 1.35
 
