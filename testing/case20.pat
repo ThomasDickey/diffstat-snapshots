@@ -57,13 +57,13 @@ Prereq:  1.88
       + add $prompt variable, to allow changing the command-line prompt.
   
   -------------------------------
-! $Header: /users/source/archives/diffstat.vcs/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp $
+! @Header: /users/tom/src/diffstat/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp @
   -------------------------------
 --- 636,640 ----
       + add $prompt variable, to allow changing the command-line prompt.
   
   -------------------------------
-! $Header: /users/source/archives/diffstat.vcs/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp $
+! @Header: /users/tom/src/diffstat/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp @
   -------------------------------
 diff -c 'vile-9.3+/README.PC' 'vile-9.3j+/README.PC'
 Index: ./README.PC
@@ -101,11 +101,11 @@ Prereq:  1.29
   paul fox, pgf@foxharp.boston.ma.us (home)
   
   ------------------------
-! $Header: /users/source/archives/diffstat.vcs/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp $
+! @Header: /users/tom/src/diffstat/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp @
   ------------------------
 --- 264,268 ----
   paul fox, pgf@foxharp.boston.ma.us (home)
   
   ------------------------
-! $Header: /users/source/archives/diffstat.vcs/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp $
+! @Header: /users/tom/src/diffstat/testing/RCS/case20.pat,v 1.1 2003/01/04 18:59:35 tom Exp @
   ------------------------

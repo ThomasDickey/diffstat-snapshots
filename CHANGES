@@ -1,3 +1,9 @@
+16-Dec-2004
+	diffstat 1.37
+
+	fix a different case for data beginning with "--" which was treated as
+	a header line.
+
 14-Dec-2004
 	diffstat 1.36
 
