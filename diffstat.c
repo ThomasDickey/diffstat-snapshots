@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2003,2004 by Thomas E. Dickey                               *
+ * Copyright 1994-2004,2005 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.37 2004/12/17 02:08:11 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.38 2005/01/16 18:03:32 Eric.Blake Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.37 2004/12/17 02:08:11 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		10 Jan 2005, add support for '--help' and '--version' (Patch
+ *			     by Eric Blake <ebb9@byu.net>.)
  *		16 Dec 2004, fix a different case for data beginning with "--"
  *			     which was treated as a header line.
  *		14 Dec 2004, Fix allocation problems.  Open files in binary
@@ -1050,6 +1052,26 @@ usage(FILE *fp)
 	fprintf(fp, "%s\n", msg[j]);
 }
 
+/* Wrapper around getopt that also parses "--help" and "--version".  
+ * argc, argv, opts, return value, and globals optarg, optind,
+ * opterr, and optopt are as in getopt().  help and version designate
+ * what should be returned if --help or --version are encountered. */
+static int
+getopt_helper(int argc, char *const argv[], const char *opts,
+	      int help, int version)
+{
+    if (optind < argc && argv[optind] != NULL) {
+	if (strcmp(argv[optind], "--help") == 0) {
+	    optind++;
+	    return help;
+	} else if (strcmp(argv[optind], "--version") == 0) {
+	    optind++;
+	    return version;
+	}
+    }
+    return getopt(argc, argv, opts);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -1058,7 +1080,8 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt(argc, argv, "ce:f:hkn:o:p:uvVw:")) != -1) {
+    while ((j = getopt_helper(argc, argv, "ce:f:hkn:o:p:uvVw:", 'h', 'V'))
+	   != -1) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
