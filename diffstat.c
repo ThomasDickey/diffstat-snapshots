@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 1994,1995 by Thomas E. Dickey.  All Rights Reserved.         *
+ * Copyright 1994,1995,1996 by Thomas E. Dickey.  All Rights Reserved.        *
  *                                                                            *
  * You may freely copy or redistribute this software, so long as there is no  *
  * profit made from its use, sale trade or reproduction. You may not change   *
@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.20 1995/12/18 01:46:32 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.23 1996/03/16 22:17:36 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.20 1995/12/18 01:46:32 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		16 Mar 1996, corrected state-change for "Binary".
  *		17 Dec 1995, corrected matching algorithm in 'merge_name()'
  *		11 Dec 1995, mods to accommodate diffs against /dev/null or
  *			     /tmp/XXX (tempfiles).
@@ -235,9 +236,9 @@ static
 int	HadDiffs(data)
 	DATA	*data;
 {
-	return data->ins
-	  ||   data->del
-	  ||   data->mod;
+	return data->ins != 0
+	  ||   data->del != 0
+	  ||   data->mod != 0;
 }
 
 static
@@ -248,7 +249,7 @@ char *	merge_name(data, path)
 	if (!HadDiffs(data)) { /* the data was the first of 2 markers */
 		if (strcmp(data->name, "")
 		 && strcmp(data->name, "/dev/null")
-		 && strncmp(data->name, "/dev/tmp/", 9)) {
+		 && strncmp(data->name, "/tmp/", 5)) {
 			int	len1 = strlen(data->name);
 			int	len2 = strlen(path);
 			int	n;
@@ -334,21 +335,19 @@ void	do_file(fp)
 		case 'I':	/* Index (e.g., from makepatch) */
 			if (!match(buffer, "Index: "))
 				break;
-			if ((s = strrchr(buffer, BLANK)) != 0) {
-				blip('.');
-				this = new_data(s+1);
-				ok = TRUE;
-			}
+			s = strrchr(buffer, BLANK); /* last token is name */
+			blip('.');
+			this = new_data(s+1);
+			ok = TRUE;
 			break;
 
 		case 'd':	/* diff command trace */
 			if (!match(buffer, "diff "))
 				break;
-			if ((s = strrchr(buffer, BLANK)) != 0) {
-				blip('.');
-				this = new_data(s+1);
-				ok = TRUE;
-			}
+			s = strrchr(buffer, BLANK);
+			blip('.');
+			this = new_data(s+1);
+			ok = TRUE;
 			break;
 
 		case '*':
@@ -405,11 +404,21 @@ void	do_file(fp)
 			this->mod += 1;
 			break;
 
+			/* Expecting "Binary files XXX and YYY differ" */
 		case 'B':	/* Binary */
 			/* FALL-THRU */
 		case 'b':	/* binary */
-			if (match(buffer+1, "inary files "))
-				this->cmt = Binary;
+			if (match(buffer+1, "inary files ")) {
+				s = strrchr(buffer, BLANK);
+				if (!strcmp(s, " differ")) {
+					*s = EOS;
+					s = strrchr(buffer, BLANK);
+					blip('.');
+					this = new_data(s+1);
+					this->cmt = Binary;
+					ok = FALSE;
+				}
+			}
 			break;
 		}
 	}
@@ -492,24 +501,30 @@ void	summarize()
 
 	for (p = all_data; p; p = p->link) {
 		printf(" %-*.*s|", name_wide, name_wide, p->name + prefix_len);
-		if (p->cmt == Normal) {
-			long	errs = 0;
+		switch (p->cmt) {
+		default:
+		case Normal:
+			temp = 0;
 			printf("%5ld ", p->ins + p->del + p->mod);
-			errs = plot_num(p->ins, '+', errs);
-			(void) plot_num(p->del, '-', errs);
-			(void) plot_num(p->mod, '!', errs);
-		} else if (p->cmt == Binary) {
+			temp = plot_num(p->ins, '+', temp);
+			(void) plot_num(p->del, '-', temp);
+			(void) plot_num(p->mod, '!', temp);
+			break;
+		case Binary:
 			printf("binary");
-		} else if (p->cmt == Only) {
+			break;
+		case Only:
 			printf("only");
+			break;
 		}
 		printf("\n");
 	}
 
 	printf(" %d files changed", num_files);
-	if (total_ins) printf(", %ld insertions", total_ins);
-	if (total_del) printf(", %ld deletions", total_del);
-	if (total_mod) printf(", %ld modifications", total_mod);
+#define PLURAL(n) n, n != 1 ? "s" : ""
+	if (total_ins) printf(", %ld insertion%s",    PLURAL(total_ins));
+	if (total_del) printf(", %ld deletion%s",     PLURAL(total_del));
+	if (total_mod) printf(", %ld modification%s", PLURAL(total_mod));
 	(void)putchar('\n');
 }
 
