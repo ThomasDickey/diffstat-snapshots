@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.26 1998/01/17 00:48:04 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.27 1998/05/17 12:07:38 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.26 1998/01/17 00:48:04 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		17 May 1998, handle Debian diff files, which do not contain
+ *			     dates on the header lines.
  *		16 Jan 1998, accommodate patches w/o tabs in header lines (e.g.,
  *			     from cut/paste).  Strip suffixes such as ".orig".
  *		24 Mar 1996, corrected -p0 logic, more fixes in merge_name.
@@ -116,6 +118,8 @@ extern	int	optind;
 #define TRACE(p) /*nothing*/
 #endif
 
+#define contain_any(s,reject) (strcspn(s,reject) != strlen(s))
+
 #define HAVE_NOTHING 0
 #define HAVE_GENERIC 1	/* e.g., "Index: foo" w/o pathname */
 #define HAVE_PATH    2	/* reference-file from "diff dirname/foo" */
@@ -143,22 +147,23 @@ static	long	plot_scale;	/* the effective scale (1:maximum) */
 
 /******************************************************************************/
 #if	__STDC__
+static	DATA* 	new_data (char* name);
+static	char* 	merge_name (DATA* data, char* path);
+static	char* 	new_string (char* s);
 static	int	HadDiffs (DATA* p);
 static	int	begin_data (DATA* p);
-static	void	blip (int c);
 static	int	can_be_merged (char* path);
+static	int	edit_range (char* s);
+static	int	is_leaf (char *leaf, char *path);
+static	int	match (char* s, char* p);
+static	int	version_num (char* s);
+static	long	plot_num (long num_value, int c, long extra);
+static	void	blip (int c);
 static	void	delink (DATA* p);
 static	void	do_file (FILE* fp);
 static	void	failed (char* s);
-static	int	is_leaf (char *leaf, char *path);
-static	int	match (char* s, char* p);
-static	char* 	merge_name (DATA* data, char* path);
-static	DATA* 	new_data (char* name);
-static	char* 	new_string (char* s);
-static	long	plot_num (long num_value, int c, long extra);
 static	void	summarize (void);
 static	void	usage (void);
-static	int	version_num (char* s);
 
 extern	int	main(int argc, char *argv[]);
 #endif
@@ -271,6 +276,15 @@ int	version_num(s)
 	int	main_ver, sub_ver;
 	char	temp[2];
 	return (sscanf(s, "%d.%d%c", &main_ver, &sub_ver, temp) == 2);
+}
+
+static
+int	edit_range(s)
+	char	*s;
+{
+	int	first, last;
+	char	temp[2];
+	return (sscanf(s, "%d,%d%c", &first, &last, temp) == 2);
 }
 
 static
@@ -504,6 +518,13 @@ void	do_file(fp)
 					&year, &month, &day,
 					&hour, &minute, &second) == 8
 				  && !version_num(fname))
+				|| (sscanf(buffer,
+				    "*** %[^\t ]%[\t ]",
+				    	fname,
+					skip) == 1
+				  && !version_num(fname)
+				  && !contain_any(fname, "*")
+				  && !edit_range(fname))
 				   ) {
 					s = merge_name(this, fname);
 					this = new_data(s);
