@@ -1,5 +1,9 @@
 18-Dec-2004
 
+	modify makefile.in and run_test.sh to allow "make check" to be run from
+	a build directory which is not the same as the source directory, i.e.,
+	when the configure --srcdir option is used (request by Eric Blake).
+
 	modify distribution to include sample of regression tests, so a
 	"make check" will work (request by Eric Blake).
 

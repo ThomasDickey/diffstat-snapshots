@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.7 2003/02/15 00:58:40 tom Exp $
+# $Id: run_test.sh,v 1.8 2004/12/18 15:57:56 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -8,32 +8,33 @@ then
 fi
 PATH=`cd ..;pwd`:$PATH; export PATH
 
-for i in $*
+for item in $*
 do
-	N=`basename $i .pat`
-	echo "testing $N"
-	for j in "" "-p1" "-p9" "-f0" "-u" "-k"
+	echo "testing `basename $item .pat`"
+	for OPTS in "" "-p1" "-p9" "-f0" "-u" "-k"
 	do
-		N=`basename $i .pat`
-		I=$N.pat
-		if [ ".$j" != "." ] ; then
-			N=$N`echo ./$j|sed -e 's@./-@@'`
+		NAME=`echo $item | sed -e 's/.pat$//'`
+		DATA=$NAME.pat
+		if [ ".$OPTS" != "." ] ; then
+			NAME=$NAME`echo ./$OPTS|sed -e 's@./-@@'`
 		fi
-		diffstat -e $N.err -o $N.out $j $I
-		if [ -f $N.ref ]
+		TEST=`basename $NAME`
+		diffstat -e $TEST.err -o $TEST.out $OPTS $DATA
+		if [ -f $NAME.ref ]
 		then
-			if ( cmp -s $N.out $N.ref )
+			if ( cmp -s $TEST.out $NAME.ref )
 			then
-				echo '** ok: '$N
-				rm -f $N.out
+				echo "** ok: $TEST"
+				rm -f $TEST.out
+				rm -f $TEST.err
 			else
-				echo '?? fail: '$N
-				diff -b $N.ref $N.out
+				echo "?? fail: $TEST"
+				diff -b $NAME.ref $TEST.out
 			fi
 		else
-			echo '** save: '$N
-			mv $N.out $N.ref
+			echo "** save: $TEST"
+			mv $TEST.out $NAME.ref
+			rm -f $TEST.err
 		fi
-		rm -f $N.err
 	done
 done

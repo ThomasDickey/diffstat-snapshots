@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.23 2004/12/18 12:27:38 tom Exp $
+# $Id: makefile.in,v 1.24 2004/12/18 16:12:19 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -83,7 +83,7 @@ realclean : distclean
 	rm -f tags TAGS # don't remove configure!
 
 check :	$(PROG)
-	cd testing && $(SHELL) ./run_test.sh
+	$(SHELL) -c 'PATH=${PWD}:${PATH}; export PATH; $(SHELL) $(srcdir)/testing/run_test.sh $(srcdir)/testing/case*.pat'
 
 lint :
 	lint $(THIS).c
