@@ -1,0 +1,90 @@
+.\"*****************************************************************************
+.\" Copyright (c) 1994 by Thomas E. Dickey.  All Rights Reserved.              *
+.\"                                                                            *
+.\" You may freely copy or redistribute this software, so long as there is no  *
+.\" profit made from its use, sale trade or reproduction. You may not change   *
+.\" this copyright notice, and it must be included in any copy made.           *
+.\"*****************************************************************************
+.\" $Id: diffstat.1,v 1.2 1994/06/13 23:38:35 tom Exp $
+.de DS
+.RS
+.nf
+.sp
+..
+.de DE
+.fi
+.RE
+.sp .5
+..
+.TH DIFFSTAT 1
+.
+.SH NAME
+\fBdiffstat\fR \- make histogram from diff-output
+.
+.SH USAGE
+\fBdiffstat\fI [options] [file-specifications]
+.
+.SH SYNOPSIS
+This program reads the output of \fBdiff\fR and displays a histogram
+of the insertions, deletions, and modifications per-file.
+.
+.SH DESCRIPTION
+Diffstat is a program that is useful for reviewing large, complex patch files.
+It reads from one or more input files which contain output from \fBdiff\fR,
+producing a histogram of the total lines changed for each file referenced.
+.
+.PP
+Diffstat recognizes the most popular types of output from diff:
+.
+.RS
+.TP
+unified
+preferred by the \fBpatch\fR utility.
+.
+.TP
+context
+best for readability, but not very compact.
+.
+.TP
+default
+not good for much, but simple to generate.
+.RE
+.
+.PP
+\fBDiffstat\fR detects the lines that are output by \fBdiff\fR to
+tell which files are compared, and then counts the markers in the
+first column that denote the type of change (insertion, deletion
+or modification).
+These are shown in the histogram as "+", "-" and "!" characters.
+.
+.PP
+If no filename is given on the command line,
+\fBdiffstat\fR reads the differences from the standard input.
+.
+.SH OPTIONS
+.TP
+.BI \-w " number"
+specify the maximum width of the histogram.
+The plot will never be shorter than 10 columns, just in case
+the filenames get too large.
+.
+.SH ENVIRONMENT
+.PP
+\fBDiffstat\fR runs in a portable UNIX\*R environment.
+.SH FILES
+.PP
+\fBDiffstat\fR is a single binary module, which uses no auxiliary files.
+.
+.SH BUGS
+.PP
+\fBDiffstat\fR makes a lot of assumptions about the format of a \fBdiff\fR file.
+.PP
+There's no easy way to determine the degree of overlap between the
+"before" and "after" displays of modified lines.
+.
+.SH SEE ALSO
+.PP
+diff (1).
+.SH AUTHOR
+.PP
+Thomas Dickey (dickey@clark.net).

@@ -1,5 +1,7 @@
-# $Id: makefile.in,v 1.1 1994/06/12 23:39:16 tom Exp $
+# $Id: makefile.in,v 1.5 1994/06/13 23:58:00 tom Exp $
 # Makefile-template for 'diffstat'
+
+THIS = diffstat
 
 #### Start of system configuration section. ####
 
@@ -13,6 +15,7 @@ INSTALL_PROGRAM	= @INSTALL_PROGRAM@
 INSTALL_DATA	= @INSTALL_DATA@
 
 LIBS		= @LIBS@
+CFLAGS		= @CFLAGS@
 
 prefix		= /usr/local
 exec_prefix	= $(prefix)
@@ -30,29 +33,14 @@ CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H
 
 LDFLAGS		= 
 
-# Tom's preferred flags
-CFLAGS		= -O -Wall -Wshadow -Wconversion -Wstrict-prototypes -Wmissing-prototypes
-
-# Flags for distribution; comment out above line and uncomment line below
-#CFLAGS		= -O
-
 .c.o:
-	$(CC) -c $(CPPFLAGS) $(CFLAGS) $(X_CFLAGS) $<
+	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
 
-ALLTOOLS = configure config_h.in \
-	install.sh mkinstalldirs \
-	configure.in
-
-# miscellaneous text files
-TEXTFILES = README
-
-ALLSRC = $(VILESRC) $(SCREENS) $(OTHERSRC) $(HDRS)
-
-DISTFILES = $(ALLTOOLS) $(ALLSRC) $(TEXTFILES)
-
-SRC = $(THIS).c $(THIS).1
+SRC = README $(THIS).c $(THIS).1 config_h.in mkdirs.sh configure.in
 
 OBJ = $(THIS).o
+
+DISTFILES = configure $(SRC)
 
 all:	$(THIS)
 
@@ -65,7 +53,7 @@ install: all installdirs
 	$(INSTALL_DATA) $(srcdir)/$(THIS).1 $(mandir)/$(THIS).$(manext)
 
 installdirs:
-	$(SHELL) ${srcdir}/mkinstalldirs $(bindir) $(libdir) $(mandir)
+	$(SHELL) ${srcdir}/mkdirs.sh $(bindir) $(libdir) $(mandir)
 
 uninstall:
 	rm -f $(bindir)/$(THIS) $(mandir)/$(THIS).$(manext)
@@ -73,36 +61,51 @@ uninstall:
 makefile: makefile.in config.status
 	./config.status
 
+config.h: configure
+	./configure
+
+configure: configure.in
+	autoconf
+
 config.status: configure
 	./config.status --recheck
 
 mostlyclean:
-	rm -f *.o o$(THIS) $(BUILTHDRS) $(MKTBLS) core *~ *.BAK
+	rm -f *.o o$(THIS) core *~ *.BAK
 
 clean: mostlyclean
-	rm -f $(THIS) manfilt
+	rm -f $(THIS)
 
 distclean: clean
 	rm -f makefile config.status config.h
 
 realclean: distclean
-	rm -f tags TAGS
+	rm -f tags TAGS configure
+
+lint:
+	lint $(THIS).c
 
 tags:
-	ctags $(SRC) $(HDRS)
+	ctags $(THIS).c $(HDRS)
 
 TAGS:
-	etags $(SRC) $(HDRS)
+	etags $(THIS).c $(HDRS)
 
 dist:	makefile $(DISTFILES)
-	echo vile-`sed -e '/char version/!d' -e 's/.*"version \(.*\)".*/\1/' -e q $(srcdir)/edef.h` > .fname
+	echo $(THIS)-`sed \
+		-e '/"$$[A-Za-z]*: $(THIS)\.c.*$$"/!d' \
+		-e 's/^.*$(THIS)[^ ]*[ ]*//' \
+		-e 's/[ ].*$$//' \
+		-e q $(srcdir)/$(THIS).c` > .fname
 	rm -rf `cat .fname`
 	mkdir `cat .fname`
 	for file in $(DISTFILES); do \
 	  ln $(srcdir)/$$file `cat .fname` \
 	    || { echo copying $$file instead; cp -p $$file `cat .fname`; }; \
 	done
-	tar -cf - `cat .fname` | gzip >`cat .fname`.tar.gz
+	tar -cf - `cat .fname` | gzip >`cat .fname`.tgz
 	rm -rf `cat .fname` .fname
 
 $(THIS).o:	config.h
+
+$(SRC):	; checkout $@
