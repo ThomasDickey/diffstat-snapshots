@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.18 1995/12/11 20:49:06 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.19 1995/12/15 23:40:30 tom Exp $";
 #endif
 
 /*
@@ -119,6 +119,7 @@ static	void	delink (DATA *p);
 static	int	match(char *s, char *p);
 static	int	version_num(char *s);
 static	int	HadDiffs (DATA *p);
+static	char *	merge_name (DATA *data, char *path);
 static	void	do_file(FILE *fp);
 static	long	plot_num(long num_value, int c, long extra);
 static	void	summarize(void);
@@ -190,7 +191,7 @@ static
 void	delink(data)
 	DATA	*data;
 {
-	register DATA *p, *q, *r;
+	register DATA *p, *q;
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 		if (p == data) {
 			if (q != 0)
