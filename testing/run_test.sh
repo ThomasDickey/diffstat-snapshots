@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.3 1996/03/24 01:29:23 tom Exp $
+# $Id: run_test.sh,v 1.4 1998/01/17 00:10:24 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -13,10 +13,11 @@ do
 	for j in "" "-p1" "-p9"
 	do
 		N=`basename $i .pat`
+		I=$N.pat
 		if [ ".$j" != "." ] ; then
 			N=$N`echo ./$j|sed -e 's@./-@@'`
 		fi
-		diffstat $j $i >$N.out 2>$N.err
+		diffstat $j $I >$N.out 2>$N.err
 		if [ -f $N.ref ]
 		then
 			if ( cmp -s $N.out $N.ref )

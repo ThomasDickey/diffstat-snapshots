@@ -1,13 +1,26 @@
 /******************************************************************************
- * Copyright 1994,1995,1996 by Thomas E. Dickey.  All Rights Reserved.        *
+ * Copyright 1994,1995,1996,1998 by Thomas E. Dickey <dickey@clark.net>       *
+ * All Rights Reserved.                                                       *
  *                                                                            *
- * You may freely copy or redistribute this software, so long as there is no  *
- * profit made from its use, sale trade or reproduction. You may not change   *
- * this copyright notice, and it must be included in any copy made.           *
+ * Permission to use, copy, modify, and distribute this software and its      *
+ * documentation for any purpose and without fee is hereby granted, provided  *
+ * that the above copyright notice appear in all copies and that both that    *
+ * copyright notice and this permission notice appear in supporting           *
+ * documentation, and that the name of the above listed copyright holder(s)   *
+ * not be used in advertising or publicity pertaining to distribution of the  *
+ * software without specific, written prior permission.                       *
+ *                                                                            *
+ * THE ABOVE LISTED COPYRIGHT HOLDER(S) DISCLAIM ALL WARRANTIES WITH REGARD   *
+ * TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND  *
+ * FITNESS, IN NO EVENT SHALL THE ABOVE LISTED COPYRIGHT HOLDER(S) BE LIABLE  *
+ * FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES          *
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN      *
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
+ * IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.25 1996/03/24 23:40:36 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.26 1998/01/17 00:48:04 tom Exp $";
 #endif
 
 /*
@@ -15,6 +28,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.25 1996/03/24 23:40:36 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		16 Jan 1998, accommodate patches w/o tabs in header lines (e.g.,
+ *			     from cut/paste).  Strip suffixes such as ".orig".
  *		24 Mar 1996, corrected -p0 logic, more fixes in merge_name.
  *		16 Mar 1996, corrected state-change for "Binary".  Added -p
  *			     option.
@@ -308,11 +323,23 @@ char *	merge_name(data, path)
 			delink(data);
 		} else if (can_be_merged(data->name)
 		    &&     can_be_merged(path)) {
-			int	len1 = strlen(data->name);
-			int	len2 = strlen(path);
+			size_t	len1 = strlen(data->name);
+			size_t	len2 = strlen(path);
 			int	n;
 			int	matched = 0;
 			int	diff = 0;
+
+			/* strip suffixes such as ".orig", ".bak" */
+			if (len1 > len2) {
+				if (!strncmp(data->name, path, len2)) {
+					data->name[len1 = len2] = EOS;
+				}
+			} else if (len1 < len2) {
+				if (!strncmp(data->name, path, len1)) {
+					path[len2 = len1] = EOS;
+				}
+			}
+
 			for (n = 1; n <= len1 && n <= len2; n++) {
 				if (data->name[len1-n] != path[len2-n]) {
 					diff = n;
@@ -321,12 +348,15 @@ char *	merge_name(data, path)
 				if (path[len2-n] == PATHSEP)
 					matched = n;
 			}
+
 			if (prefix_opt < 0
 			 && matched != 0
 			 && diff)
 				path += len2 - matched + 1;
+
 			delink(data);
-			TRACE(("merge @%d\n", __LINE__))
+			TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
+				__LINE__, prefix_opt, matched, diff))
 		} else if (!can_be_merged(path)) {
 			TRACE(("merge @%d\n", __LINE__))
 			/* must not merge, retain existing name */
@@ -346,8 +376,11 @@ int	begin_data(p)
 	DATA	*p;
 {
 	if (!can_be_merged(p->name)
-	 && strchr(p->name, PATHSEP) != 0)
+	 && strchr(p->name, PATHSEP) != 0) {
+		TRACE(("begin_data:HAVE_PATH\n"))
 		return HAVE_PATH;
+	}
+	TRACE(("begin_data:HAVE_GENERIC\n"))
 	return HAVE_GENERIC;
 }
 
@@ -439,10 +472,14 @@ void	do_file(fp)
 			TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer))
 			if (!(ok & HAVE_PATH)) {
 				char	fname[BUFSIZ];
+				char	skip[BUFSIZ];
 				char	wday[BUFSIZ], mmm[BUFSIZ];
 				int	ddd, hour, minute, second;
 				int	day, month, year;
 
+				/* check for tab-delimited first, so we can
+				 * accept filenames containing spaces.
+				 */
 				if (sscanf(buffer,
 				    "*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
 				    fname,
@@ -453,6 +490,19 @@ void	do_file(fp)
 				    	fname,
 					&year, &month, &day,
 					&hour, &minute, &second) == 7
+				  && !version_num(fname))
+				|| sscanf(buffer,
+				    "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
+				    fname,
+				    skip,
+				    wday, mmm, &ddd,
+				    &hour, &minute, &second, &year) == 9
+				|| (sscanf(buffer,
+				    "*** %[^\t ]%[\t ]%d/%d/%d %d:%d:%d",
+				    	fname,
+					skip,
+					&year, &month, &day,
+					&hour, &minute, &second) == 8
 				  && !version_num(fname))
 				   ) {
 					s = merge_name(this, fname);
@@ -569,7 +619,7 @@ void	summarize()
 			while (prefix_len > 0) {
 				if (p->name[prefix_len-1] != PATHSEP)
 					prefix_len--;
-				else if (strncmp(all_data->name, p->name, prefix_len))
+				else if (strncmp(all_data->name, p->name, (size_t) prefix_len))
 					prefix_len--;
 				else
 					break;
