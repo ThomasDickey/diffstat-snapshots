@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.20 2003/11/09 18:49:00 tom Exp $
+# $Id: makefile.in,v 1.22 2004/11/09 02:00:09 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -20,7 +20,8 @@ CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H @CPPFLAGS@
 LIBS		= @LIBS@
 LDFLAGS		= @LDFLAGS@
 
-EXEEXT		= @EXEEXT@
+o		= .@OBJEXT@
+x		= @EXEEXT@
 
 DESTDIR		= @DESTDIR@
 prefix		= @prefix@
@@ -36,7 +37,7 @@ SHELL		= /bin/sh
 man1dir		= $(mandir)/man1
 manext		= 1
 
-PROG		= $(THIS)$(EXEEXT)
+PROG		= $(THIS)$x
 
 SRC = CHANGES \
 	README $(THIS).c $(THIS).1 \
@@ -44,10 +45,16 @@ SRC = CHANGES \
 
 DISTFILES = configure config.guess config.sub $(SRC)
 
+.SUFFIXES: .c $o
+
+.c$o:
+@RULE_CC@
+	@ECHO_CC@$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
+
 all :	$(PROG)
 
-$(PROG) : diffstat.c
-	@ECHO_LD@$(LINK) $(LDFLAGS) -o $(PROG) $(CPPFLAGS) $(CFLAGS) diffstat.c $(LIBS)
+$(PROG) : diffstat$o
+	@ECHO_LD@$(LINK) $(LDFLAGS) -o $@ diffstat$o $(LIBS)
 
 install : all installdirs
 	$(INSTALL_PROGRAM) $(PROG) $(bindir)/$(PROG)
