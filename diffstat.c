@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2002,2003 by Thomas E. Dickey                               *
+ * Copyright 1994-2003,2004 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.34 2003/11/09 18:45:00 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.35 2004/11/09 02:13:34 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static char *Id = "$Id: diffstat.c,v 1.34 2003/11/09 18:45:00 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		08 Nov 2004, minor fix for resync of unified diffs checks for
+ *			     range (line beginning with '@' without header
+ *			     lines (successive lines beginning with "---" and
+ *			     "+++").  Fix a few problems reported by valgrind.
  *		09 Nov 2003, modify check for lines beginning with '-' or '+'
  *			     to treat only "---" in old-style diffs as a
  *			     special case.
@@ -465,9 +469,12 @@ static void
 dequote(char *s)
 {
     int len = strlen(s);
+    int n;
 
     if (*s == SQUOTE && len > 2 && s[len - 1] == SQUOTE) {
-	strcpy(s, s + 1);
+	for (n = 0; (s[n] = s[n + 1]) != EOS; ++n) {
+	    ;
+	}
 	s[len - 2] = EOS;
     }
 }
@@ -534,10 +541,8 @@ do_file(FILE *fp)
     int new_unify = 0;
     char *s;
 
+    memset(&dummy, 0, sizeof(dummy));
     dummy.name = "";
-    dummy.ins = 0;
-    dummy.del = 0;
-    dummy.mod = 0;
 
     fixed_buffer(&buffer, fixed = length = BUFSIZ);
     fixed_buffer(&b_fname, length);
@@ -580,7 +585,8 @@ do_file(FILE *fp)
 	    marker = unified = 1;
 	} else if ((old_unify + new_unify) == 0 && match(buffer, "+++ ")) {
 	    marker = unified = 2;
-	} else if (unified == 2) {
+	} else if (unified == 2
+		   || ((old_unify + new_unify) == 0 && (*buffer == '@'))) {
 	    unified = 0;
 	    if (*buffer == '@') {
 		int old_base, new_base, old_size, new_size;

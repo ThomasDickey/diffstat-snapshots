@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994-2002,2003 by Thomas E. Dickey                               *
+.\" Copyright 1994-2003,2004 by Thomas E. Dickey                               *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,26 +18,15 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.15 2003/02/15 01:05:12 tom Exp $
-.de DS
-.RS
-.nf
-.sp
-..
-.de DE
-.fi
-.RE
-.sp .5
-..
+.\" $Id: diffstat.1,v 1.16 2004/11/09 01:53:01 tom Exp $
 .TH DIFFSTAT 1
 .SH NAME
 \fBdiffstat\fP \- make histogram from diff-output
-.SH USAGE
-\fBdiffstat\fP\fI [options] [file-specifications]\fP
 .SH SYNOPSIS
+\fBdiffstat\fP\fI [options] [file-specifications]\fP
+.SH DESCRIPTION
 This program reads the output of \fBdiff\fP and displays a histogram
 of the insertions, deletions, and modifications per-file.
-.SH DESCRIPTION
 Diffstat is a program that is useful for reviewing large, complex patch files.
 It reads from one or more input files which contain output from \fBdiff\fP,
 producing a histogram of the total lines changed for each file referenced.
@@ -67,46 +56,46 @@ If no filename is given on the command line,
 \fBdiffstat\fP reads the differences from the standard input.
 .SH OPTIONS
 .TP
-.B \-c
+.B -c
 prefix each line of output with "#", making it a comment-line for shell
 scripts.
 .TP
-.BI \-e " file"
+.BI -e " file"
 redirect standard error to \fIfile\fR.
 .TP
-.BI \-f " format"
+.BI -f " format"
 specify 0 for concise, 1 for normal output.
 .TP
-.B \-h
+.B -h
 prints the usage message and exits.
 .TP
-.B \-k
+.B -k
 suppress the merging of filenames in the report.
 .TP
-.BI \-n " number"
+.BI -n " number"
 specify the minimum width used for filenames.
 If you don't specify this, \fBdiffstat\fP uses the length of the longest
 filename, after stripping common prefixes.
 .TP
-.BI \-o " file"
+.BI -o " file"
 redirect standard output to \fIfile\fR.
 .TP
-.BI \-p " number"
+.BI -p " number"
 override the logic that strips common pathnames, simulating the \fBpatch\fP
 "-p" option.
 .TP
-.B \-u
+.B -u
 suppress the sorting of filenames in the report.
 .TP
-.B \-v
+.B -v
 show progress,
 e.g., if the output is redirected to a file,
 write progress messages to the standard error.
 .TP
-.B \-V
+.B -V
 prints the current version number and exits.
 .TP
-.BI \-w " number"
+.BI -w " number"
 specify the maximum width of the histogram.
 The plot will never be shorter than 10 columns, just in case
 the filenames get too large.

@@ -1,3 +1,15 @@
+08-Nov-2004
+	diffstat 1.35
+
+	modify makefile.in to work with configure --srcdir option (report by
+	Eric Blake).
+
+	minor fix for resync of unified diffs checks for range (line beginning
+	with '@' without header lines (successive lines beginning with "---"
+	and "+++") (Debian #264098).
+
+	miscellaneous updates for configure script
+
 09-Nov-2003
 	diffstat 1.34
 
