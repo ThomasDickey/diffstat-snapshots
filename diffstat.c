@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.23 1996/03/16 22:17:36 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.24 1996/03/17 00:34:14 tom Exp $";
 #endif
 
 /*
@@ -15,7 +15,8 @@ static	char	*Id = "$Id: diffstat.c,v 1.23 1996/03/16 22:17:36 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
- *		16 Mar 1996, corrected state-change for "Binary".
+ *		16 Mar 1996, corrected state-change for "Binary".  Added -p
+ *			     option.
  *		17 Dec 1995, corrected matching algorithm in 'merge_name()'
  *		11 Dec 1995, mods to accommodate diffs against /dev/null or
  *			     /tmp/XXX (tempfiles).
@@ -97,7 +98,8 @@ typedef	enum comment { Normal, Only, Binary } Comment;
 
 typedef	struct	_data	{
 	struct	_data	*link;
-	char		*name;
+	char		*name;	/* the filename */
+	int		base;	/* beginning of name if -p option used */
 	Comment		cmt;
 	long		ins,	/* "+" count inserted lines */
 			del,	/* "-" count deleted lines */
@@ -108,6 +110,7 @@ static	DATA	*all_data;
 static	int	piped_output;
 static	int	max_width;	/* the specified width-limit */
 static	int	name_wide;	/* the amount reserved for filenames */
+static	int	prefix_opt = -1;/* if positive, controls stripping of PATHSEP */
 static	int	plot_width;	/* the amount left over for histogram */
 static	long	plot_scale;	/* the effective scale (1:maximum) */
 
@@ -178,6 +181,7 @@ DATA *	new_data(name)
 
 	r->link = p;
 	r->name = new_string(name);
+	r->base = 0;
 	r->cmt = Normal;
 	r->ins =
 	r->del =
@@ -263,7 +267,9 @@ char *	merge_name(data, path)
 				if (path[len2-n] == PATHSEP)
 					matched = n;
 			}
-			if (matched != 0 && diff)
+			if (prefix_opt < 0
+			 && matched != 0
+			 && diff)
 				path += len2 - n;
 		}
 		delink(data);
@@ -461,21 +467,38 @@ void	summarize()
 	for (p = all_data; p; p = p->link) {
 		int	len = strlen(p->name);
 
-		if (len < prefix_len || prefix_len < 0)
-			prefix_len = len;
-		while (prefix_len > 0) {
-			if (p->name[prefix_len-1] != '/')
-				prefix_len--;
-			else if (strncmp(all_data->name, p->name, prefix_len))
-				prefix_len--;
-			else
-				break;
-		}
+		/*
+		 * "-p0" gives the whole pathname unmodified.  "-p1" strips
+		 * through the first path-separator, etc.
+		 */
+		if (prefix_opt >= 0) {
+			int n, base;
+			for (n = prefix_opt, base = 0; n > 0; n--) {
+				char *s = strchr(p->name+base, PATHSEP);
+				if (s == 0 || *++s == EOS)
+					break;
+				base = (int)(s - p->name);
+			}
+			p->base = base;
+			if (name_wide < (len - base))
+				name_wide = (len - base);
+		} else {
+			if (len < prefix_len || prefix_len < 0)
+				prefix_len = len;
+			while (prefix_len > 0) {
+				if (p->name[prefix_len-1] != PATHSEP)
+					prefix_len--;
+				else if (strncmp(all_data->name, p->name, prefix_len))
+					prefix_len--;
+				else
+					break;
+			}
 
-		if (len > longest_name)
-			longest_name = len;
-		if (len < shortest_name || shortest_name < 0)
-			shortest_name = len;
+			if (len > longest_name)
+				longest_name = len;
+			if (len < shortest_name || shortest_name < 0)
+				shortest_name = len;
+		}
 
 		num_files++;
 		total_ins += p->ins;
@@ -486,21 +509,25 @@ void	summarize()
 			plot_scale = temp;
 	}
 
-	if (prefix_len < 0)
-		prefix_len = 0;
-	if ((longest_name - prefix_len) > name_wide)
-		name_wide = (longest_name - prefix_len);
+	if (prefix_opt < 0) {
+		if (prefix_len < 0)
+			prefix_len = 0;
+		if ((longest_name - prefix_len) > name_wide)
+			name_wide = (longest_name - prefix_len);
+	}
 
 	name_wide++;	/* make sure it's nonzero */
 	plot_width = (max_width - name_wide - 8);
 	if (plot_width < 10)
 		plot_width = 10;
-	
+
 	if (plot_scale < plot_width)
 		plot_scale = plot_width;	/* 1:1 */
 
 	for (p = all_data; p; p = p->link) {
-		printf(" %-*.*s|", name_wide, name_wide, p->name + prefix_len);
+		printf(" %-*.*s|",
+			name_wide, name_wide,
+			p->name + (prefix_opt > 0 ? p->base : prefix_len));
 		switch (p->cmt) {
 		default:
 		case Normal:
@@ -540,6 +567,7 @@ void	usage()
 	"",
 	"Options:",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
+	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -w NUM  specify maximum width of the output (default: 80)",
 	"  -V      prints the version number"
 	};
@@ -560,10 +588,13 @@ int	main(argc, argv)
 	piped_output = !isatty(fileno(stdout))
 		     && isatty(fileno(stderr));
 
-	while ((j = getopt(argc, argv, "n:w:V")) != EOF) {
+	while ((j = getopt(argc, argv, "n:p:w:V")) != EOF) {
 		switch (j) {
 		case 'n':
 			name_wide = atoi(optarg);
+			break;
+		case 'p':
+			prefix_opt = atoi(optarg);
 			break;
 		case 'w':
 			max_width = atoi(optarg);
@@ -601,5 +632,4 @@ int	main(argc, argv)
 	summarize();
 	exit(EXIT_SUCCESS);
 	/*NOTREACHED*/
-	return (EXIT_SUCCESS);
 }
