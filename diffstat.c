@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.15 1994/12/26 01:44:59 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.16 1995/04/29 16:28:33 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.15 1994/12/26 01:44:59 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		29 Apr 1995, recognize 'rcsdiff -u' format.
  *		26 Dec 1994, strip common pathname-prefix.
  *		13 Nov 1994, added '-n' option.  Corrected logic of 'match'.
  *		17 Jun 1994, ifdef-<string.h>
@@ -111,6 +112,7 @@ static	void	blip (int c);
 static	char *	new_string(char *s);
 static	DATA *	new_data(char *name);
 static	int	match(char *s, char *p);
+static	int	version_num(char *s);
 static	void	do_file(FILE *fp);
 static	void	plot(long num, long max, int c);
 static	void	summarize(void);
@@ -191,6 +193,15 @@ int	match(s, p)
 			break;
 	}
 	return ok;
+}
+
+static
+int	version_num(s)
+	char	*s;
+{
+	int	main_ver, sub_ver;
+	char	temp[2];
+	return (sscanf(s, "%d.%d%c", &main_ver, &sub_ver, temp) == 2);
 }
 
 static
@@ -277,13 +288,21 @@ void	do_file(fp)
 			if (ok <= 0) {
 				char	fname[BUFSIZ];
 				char	wday[BUFSIZ], mmm[BUFSIZ];
-				int	ddd, hour, minute, second, year;
+				int	ddd, hour, minute, second;
+				int	day, month, year;
 
 				if (sscanf(buffer,
 				    "*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
 				    fname,
 				    wday, mmm, &ddd,
-				    &hour, &minute, &second, &year) == 8) {
+				    &hour, &minute, &second, &year) == 8
+				|| (sscanf(buffer,
+				    "*** %[^\t]\t%d/%d/%d %d:%d:%d",
+				    	fname,
+					&year, &month, &day,
+					&hour, &minute, &second) == 7
+				  && !version_num(fname))
+				   ) {
 					ok = -TRUE;
 					if (!(s = strrchr(fname, PATHSEP)))
 						s = fname;
