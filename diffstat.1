@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.8 1998/01/17 01:36:29 tom Exp $
+.\" $Id: diffstat.1,v 1.9 2000/03/29 23:24:42 tom Exp $
 .de DS
 .RS
 .nf
@@ -45,6 +45,8 @@ of the insertions, deletions, and modifications per-file.
 Diffstat is a program that is useful for reviewing large, complex patch files.
 It reads from one or more input files which contain output from \fBdiff\fP,
 producing a histogram of the total lines changed for each file referenced.
+If the input filename ends with .Z or .gz, diffstat will read the
+uncompressed data via a pipe.
 ..
 .PP
 Diffstat recognizes the most popular types of output from diff:
@@ -75,6 +77,10 @@ If no filename is given on the command line,
 \fBdiffstat\fP reads the differences from the standard input.
 ..
 .SH OPTIONS
+.TP
+.B \-c
+prefix each line of output with "#", making it a comment-line for shell
+scripts.
 .TP
 .BI \-n " number"
 specify the minimum width used for filenames.

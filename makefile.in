@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.11 1998/01/17 01:36:01 tom Exp $
+# $Id: makefile.in,v 1.14 2000/03/29 23:57:00 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -16,7 +16,7 @@ INSTALL_DATA	= @INSTALL_DATA@
 
 LIBS		= @LIBS@
 CFLAGS		= @CFLAGS@
-LDFLAGS		=
+LDFLAGS		= @LDFLAGS@
 
 install_prefix	=
 prefix		= @prefix@
@@ -35,22 +35,16 @@ CPPFLAGS	= -I. -I$(srcdir) -DHAVE_CONFIG_H
 
 LDFLAGS		= 
 
-SRC = CHANGES patchlev.h \
+SRC = CHANGES \
 	README $(THIS).c $(THIS).1 \
 	config_h.in install.sh mkdirs.sh makefile.in configure.in
-
-OBJ = $(THIS).o
 
 DISTFILES = configure $(SRC)
 
 all:	$(THIS)
 
-.c.o:
-	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
-
-$(THIS): $(OBJ)
-	-mv $(THIS) o$(THIS)
-	$(LINK) $(LDFLAGS) -o $(THIS) $(OBJ) $(LIBS)
+$(THIS): diffstat.c
+	$(LINK) $(LDFLAGS) -o $(THIS) $(CPPFLAGS) $(CFLAGS) diffstat.c $(LIBS)
 
 install: all installdirs
 	$(INSTALL_PROGRAM) $(THIS) $(bindir)/$(THIS)
@@ -72,7 +66,7 @@ config.status: configure
 	./config.status --recheck
 
 mostlyclean:
-	rm -f *.o o$(THIS) core *~ *.out *.BAK *.atac
+	rm -f *.o core *~ *.out *.BAK *.atac
 
 clean: mostlyclean
 	rm -f $(THIS)
