@@ -1,4 +1,3 @@
-//#define DEBUG
 /******************************************************************************
  * Copyright 1994-2002,2003 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
@@ -21,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.33 2003/02/15 00:57:22 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.34 2003/11/09 18:45:00 tom Exp $";
 #endif
 
 /*
@@ -29,6 +28,9 @@ static char *Id = "$Id: diffstat.c,v 1.33 2003/02/15 00:57:22 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		09 Nov 2003, modify check for lines beginning with '-' or '+'
+ *			     to treat only "---" in old-style diffs as a
+ *			     special case.
  *		14 Feb 2003, modify check for filenames to allow for some cases
  *			     of incomplete dates (the reported example omitted
  *			     the day of the month).  Correct a typo in usage().
@@ -127,13 +129,6 @@ extern char *optarg;
 extern int optind;
 #endif
 
-#if !defined(TRUE) || (TRUE != 1)
-#undef  TRUE
-#undef  FALSE
-#define	TRUE		1
-#define	FALSE		0
-#endif
-
 #if !defined(EXIT_SUCCESS)
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -150,6 +145,8 @@ extern int optind;
 #define SQUOTE  '\''
 #define EOS     '\0'
 #define BLANK   ' '
+
+#define UC(c)   ((unsigned char)(c))
 
 #ifdef DEBUG
 #define TRACE(p) printf p
@@ -277,11 +274,11 @@ delink(DATA * data)
 static int
 match(char *s, char *p)
 {
-    int ok = FALSE;
+    int ok = 0;
 
     while (*s != EOS) {
 	if (*p == EOS) {
-	    ok = TRUE;
+	    ok = 1;
 	    break;
 	}
 	if (*s++ != *p++)
@@ -346,8 +343,8 @@ can_be_merged(char *path)
     if (strcmp(path, "")
 	&& strcmp(path, "/dev/null")
 	&& strncmp(path, "/tmp/", 5))
-	return TRUE;
-    return FALSE;
+	return 1;
+    return 0;
 }
 
 static int
@@ -358,8 +355,8 @@ is_leaf(char *leaf, char *path)
     if (strchr(leaf, PATHSEP) == 0
 	&& (s = strrchr(path, PATHSEP)) != 0
 	&& !strcmp(++s, leaf))
-	return TRUE;
-    return FALSE;
+	return 1;
+    return 0;
 }
 
 static char *
@@ -441,7 +438,7 @@ begin_data(DATA * p)
 static char *
 skip_blanks(char *s)
 {
-    while (isspace(*s))
+    while (isspace(UC(*s)))
 	++s;
     return s;
 }
@@ -452,7 +449,7 @@ skip_options(char *params)
     while (*params != '\0') {
 	params = skip_blanks(params);
 	if (*params == '-') {
-	    while (isgraph(*params))
+	    while (isgraph(UC(*params)))
 		params++;
 	} else {
 	    break;
@@ -564,7 +561,7 @@ do_file(FILE *fp)
 	 * Trim trailing blanks (e.g., newline)
 	 */
 	for (s = buffer + strlen(buffer); s > buffer; s--) {
-	    if (isspace(s[-1]))
+	    if (isspace(UC(s[-1])))
 		s[-1] = EOS;
 	    else
 		break;
@@ -636,10 +633,10 @@ do_file(FILE *fp)
 	case 'O':		/* Only */
 	    if (match(buffer, "Only in ")) {
 		char *path = buffer + 8;
-		int found = FALSE;
+		int found = 0;
 		for (s = path; *s != EOS; s++) {
 		    if (match(s, ": ")) {
-			found = TRUE;
+			found = 1;
 			*s++ = PATHSEP;
 			while ((s[0] = s[1]) != EOS)
 			    s++;
@@ -738,31 +735,26 @@ do_file(FILE *fp)
 	    break;
 
 	case '+':
-	    if (!unified && buffer[0] == buffer[1])
-		break;
 	    /* FALL-THRU */
 	case '>':
-	    if (!ok)
-		break;
-	    that->ins += 1;
+	    if (ok)
+		that->ins += 1;
 	    break;
 
 	case '-':
 	    if (!ok)
 		break;
-	    if (!unified && buffer[0] == buffer[1])
+	    if (!unified && !strcmp(buffer, "---"))
 		break;
 	    /* fall-thru */
 	case '<':
-	    if (!ok)
-		break;
-	    that->del += 1;
+	    if (ok)
+		that->del += 1;
 	    break;
 
 	case '!':
-	    if (!ok)
-		break;
-	    that->mod += 1;
+	    if (ok)
+		that->mod += 1;
 	    break;
 
 	    /* Expecting "Binary files XXX and YYY differ" */
