@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 1994 by Thomas E. Dickey.  All Rights Reserved.              *
+ * Copyright (c) 1994,1995 by Thomas E. Dickey.  All Rights Reserved.         *
  *                                                                            *
  * You may freely copy or redistribute this software, so long as there is no  *
  * profit made from its use, sale trade or reproduction. You may not change   *
@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.16 1995/04/29 16:28:33 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.17 1995/05/06 14:00:58 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.16 1995/04/29 16:28:33 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		06 May 1995, limit scaling -- only shrink-to-fit.
  *		29 Apr 1995, recognize 'rcsdiff -u' format.
  *		26 Dec 1994, strip common pathname-prefix.
  *		13 Nov 1994, added '-n' option.  Corrected logic of 'match'.
@@ -104,6 +105,7 @@ static	int	piped_output;
 static	int	max_width;	/* the specified width-limit */
 static	int	name_wide;	/* the amount reserved for filenames */
 static	int	plot_width;	/* the amount left over for histogram */
+static	long	plot_scale;	/* the effective scale (1:maximum) */
 
 /******************************************************************************/
 #if	__STDC__
@@ -114,7 +116,7 @@ static	DATA *	new_data(char *name);
 static	int	match(char *s, char *p);
 static	int	version_num(char *s);
 static	void	do_file(FILE *fp);
-static	void	plot(long num, long max, int c);
+static	long	plot_num(long num_value, int c, long extra);
 static	void	summarize(void);
 static	void	usage(void);
 	int	main(int argc, char *argv[]);
@@ -352,23 +354,30 @@ void	do_file(fp)
 	blip('\n');
 }
 
+/*
+ * Each call to 'plot_num()' prints a scaled bar of 'c' characters.  The
+ * 'extra' parameter is used to keep the accumulated error in the bar's total
+ * length from getting large.
+ */
 static
-void	plot(num, max, c)
-	long	num;
-	long	max;
-	int	c;
+long	plot_num(num_value, c, extra)
+	long	num_value;	/* the value to plot */
+	int	c;		/* character to display in the bar */
+	long	extra;		/* accumulated error in the bar */
 {
-	num = ((plot_width * num) / max);
-	while (--num >= 0)
+	long	product	= (plot_width * num_value) + extra;
+	long	count	= (product / plot_scale);
+	extra = product - (count * plot_scale);
+	while (--count >= 0)
 		(void)putchar(c);
+	return extra;
 }
 
 static
 void	summarize()
 {
 	register DATA *p;
-	long	scale = 0,
-		total_ins = 0,
+	long	total_ins = 0,
 		total_del = 0,
 		total_mod = 0,
 		temp;
@@ -377,6 +386,7 @@ void	summarize()
 		longest_name  = -1,
 		prefix_len    = -1;
 
+	plot_scale = 0;
 	for (p = all_data; p; p = p->link) {
 		int	len = strlen(p->name);
 
@@ -401,8 +411,8 @@ void	summarize()
 		total_del += p->del;
 		total_mod += p->mod;
 		temp = p->ins + p->del + p->mod;
-		if (temp > scale)
-			scale = temp;
+		if (temp > plot_scale)
+			plot_scale = temp;
 	}
 
 	if (prefix_len < 0)
@@ -414,14 +424,18 @@ void	summarize()
 	plot_width = (max_width - name_wide - 8);
 	if (plot_width < 10)
 		plot_width = 10;
+	
+	if (plot_scale < plot_width)
+		plot_scale = plot_width;	/* 1:1 */
 
 	for (p = all_data; p; p = p->link) {
 		printf(" %-*.*s|", name_wide, name_wide, p->name + prefix_len);
 		if (p->cmt == Normal) {
+			long	errs = 0;
 			printf("%5ld ", p->ins + p->del + p->mod);
-			plot(p->ins, scale, '+');
-			plot(p->del, scale, '-');
-			plot(p->mod, scale, '!');
+			errs = plot_num(p->ins, '+', errs);
+			(void) plot_num(p->del, '-', errs);
+			(void) plot_num(p->mod, '!', errs);
 		} else if (p->cmt == Binary) {
 			printf("binary");
 		} else if (p->cmt == Only) {
