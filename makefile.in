@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.24 2004/12/18 16:12:19 tom Exp $
+# $Id: makefile.in,v 1.26 2005/01/16 23:22:00 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -39,15 +39,22 @@ manext		= 1
 
 PROG		= $(THIS)$x
 
-SRC = CHANGES \
-	README $(THIS).c $(THIS).1 \
-	config_h.in install.sh mkdirs.sh makefile.in configure.in aclocal.m4
+SRC =		CHANGES \
+		README $(THIS).c $(THIS).1 \
+		config_h.in install.sh mkdirs.sh \
+		makefile.in configure.in aclocal.m4 \
+		makefile.wnt
+
+PORTFILES =	porting/getopt.c \
+		porting/getopt.h \
+		porting/system.h \
+		porting/wildcard.c
 
 TESTFILES =	testing/README \
 		testing/run_test.sh \
 		testing/case0[1-5]*
 
-DISTFILES = configure config.guess config.sub $(SRC)
+DISTFILES =	configure config.guess config.sub $(SRC)
 
 .SUFFIXES: .c $o
 
@@ -83,7 +90,8 @@ realclean : distclean
 	rm -f tags TAGS # don't remove configure!
 
 check :	$(PROG)
-	$(SHELL) -c 'PATH=${PWD}:${PATH}; export PATH; $(SHELL) $(srcdir)/testing/run_test.sh $(srcdir)/testing/case*.pat'
+	$(SHELL) -c 'PATH=`pwd`:$${PATH}; export PATH; \
+	    $(SHELL) $(srcdir)/testing/run_test.sh $(srcdir)/testing/case*.pat'
 
 lint :
 	lint $(THIS).c
@@ -95,22 +103,32 @@ TAGS :
 	etags $(THIS).c $(HDRS)
 
 dist:	makefile $(DISTFILES)
+	# make a list of the files to distribute
 	echo $(THIS)-`sed \
 		-e '/"$$[A-Za-z]*: $(THIS)\.c.*$$"/!d' \
 		-e 's/^.*$(THIS)[^ ]*[ ]*//' \
 		-e 's/[ ].*$$//' \
 		-e q $(srcdir)/$(THIS).c` > .fname
 	rm -rf `cat .fname`
+	# contents of top directory
 	mkdir `cat .fname`
 	for file in $(DISTFILES); do \
 	  ln $(srcdir)/$$file `cat .fname` \
 	    || { echo copying $$file instead; cp -p $$file `cat .fname`; }; \
 	done
+	# contents of top/porting directory
+	mkdir `cat .fname`/porting
+	for file in $(PORTFILES); do \
+	  ln $(srcdir)/$$file `cat .fname`/porting \
+	    || { echo copying $$file instead; cp -p $$file `cat .fname`/porting; }; \
+	done
+	# contents of top/testing directory
 	mkdir `cat .fname`/testing
 	for file in $(TESTFILES); do \
 	  ln $(srcdir)/$$file `cat .fname`/testing \
 	    || { echo copying $$file instead; cp -p $$file `cat .fname`/testing; }; \
 	done
+	# tar and cleanup
 	tar -cf - `cat .fname` | gzip >`cat .fname`.tgz
 	rm -rf `cat .fname` .fname
 

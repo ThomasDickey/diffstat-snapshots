@@ -1,3 +1,15 @@
+16-Jan-2005
+	diffstat 1.38
+
+	add makefile.wnt, etc., for win32 port.
+
+	fix "make check" to work even when PATH or the build directory has
+	spaces in it (patch by Eric Blake).
+
+	add support for '--help' and '--version' command line arguments, for a
+	consistent interface with GNU tools, and still compatible to POSIX
+	requirements on utility options (patch by Eric Blake).
+
 18-Dec-2004
 
 	modify makefile.in and run_test.sh to allow "make check" to be run from
@@ -16,7 +28,7 @@
 14-Dec-2004
 	diffstat 1.36
 
-	Fix allocation problems.  Open files in binary mode for reading. 
+	Fix allocation problems.  Open files in binary mode for reading.
 	Getopt returns -1, not necessarily EOF.  Add const where useful.  Use
 	NO_IDENT where necessary.  malloc() comes from <stdlib.h> in standard
 	systems (Patch by Eric Blake <ebb9@byu.net>.)
@@ -46,7 +58,7 @@
 	diffstat 1.33
 
 	modified to work around a case where the filename+date was incomplete,
-	i.e., missing one of the components such as the day of the month. 
+	i.e., missing one of the components such as the day of the month.
 	While diffstat does not use the date directly, it helps distinguish
 	some lines from non-patches (report by Moritz Barsnick
 	<moritz@barsnick.net>).

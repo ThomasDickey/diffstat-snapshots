@@ -1,12 +1,14 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.8 2004/12/18 15:57:56 tom Exp $
+# $Id: run_test.sh,v 1.9 2005/01/16 17:58:00 Eric.Blake Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
-	eval $0 *.pat
+	eval '"$0" *.pat'
 	exit
 fi
 PATH=`cd ..;pwd`:$PATH; export PATH
+# Sanity check, remembering that not every system has `which'.
+(which diffstat) >/dev/null 2>/dev/null && echo "Checking `which diffstat`"
 
 for item in $*
 do
