@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.19 1995/12/15 23:40:30 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.20 1995/12/18 01:46:32 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.19 1995/12/15 23:40:30 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		17 Dec 1995, corrected matching algorithm in 'merge_name()'
  *		11 Dec 1995, mods to accommodate diffs against /dev/null or
  *			     /tmp/XXX (tempfiles).
  *		06 May 1995, limit scaling -- only shrink-to-fit.
@@ -252,13 +253,16 @@ char *	merge_name(data, path)
 			int	len2 = strlen(path);
 			int	n;
 			int	matched = 0;
+			int	diff = 0;
 			for (n = 1; n <= len1 && n <= len2; n++) {
-				if (data->name[len1-n] != path[len2-n])
+				if (data->name[len1-n] != path[len2-n]) {
+					diff = n;
 					break;
+				}
 				if (path[len2-n] == PATHSEP)
 					matched = n;
 			}
-			if (matched != 0)
+			if (matched != 0 && diff)
 				path += len2 - n;
 		}
 		delink(data);
