@@ -1,11 +1,11 @@
 .\"*****************************************************************************
-.\" Copyright (c) 1994 by Thomas E. Dickey.  All Rights Reserved.              *
+.\" Copyright 1994,1996 by Thomas E. Dickey.  All Rights Reserved.             *
 .\"                                                                            *
 .\" You may freely copy or redistribute this software, so long as there is no  *
 .\" profit made from its use, sale trade or reproduction. You may not change   *
 .\" this copyright notice, and it must be included in any copy made.           *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.4 1994/11/13 19:42:43 tom Exp $
+.\" $Id: diffstat.1,v 1.5 1996/03/17 00:39:24 tom Exp $
 .de DS
 .RS
 .nf
@@ -67,6 +67,10 @@ If no filename is given on the command line,
 specify the minimum width used for filenames.
 If you don't specify this, \fBdiffstat\fR uses the length of the longest
 filename, after stripping common prefixes.
+.TP
+.BI \-p " number"
+override the logic that strips common pathnames, simulating the \fBpatch\fR
+"-p" option.
 .TP
 .B \-V
 prints the current version number

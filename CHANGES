@@ -1,3 +1,14 @@
+Patch 4 (16-Mar-1996)
+	diffstat 1.24
+
+	Corrected state-transition after "Binary".
+
+	Added testing subdirectory
+
+	Added -p option.
+
+	Handle differences from /tmp (e.g., for X11R5 patches).
+
 Patch 3 (06-May-1995)
 
 	Repost whole program to comp.sources.misc (1.17)
