@@ -1,3 +1,18 @@
+14-Feb-2003
+	diffstat 1.33
+
+	modified to work around a case where the filename+date was incomplete,
+	i.e., missing one of the components such as the day of the month. 
+	While diffstat does not use the date directly, it helps distinguish
+	some lines from non-patches (report by Moritz Barsnick
+	<moritz@barsnick.net>).
+
+	add "-h" option (request by Moritz Barsnick).
+
+	fix a typo in usage message (report by Moritz Barsnick).
+
+	add "-e" and "-o" options to simplify testing on OS/2 EMX.
+
 04-Jan-2003
 	diffstat 1.32
 

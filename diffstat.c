@@ -21,7 +21,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static char *Id = "$Id: diffstat.c,v 1.32 2003/01/05 01:16:53 tom Exp $";
+static char *Id = "$Id: diffstat.c,v 1.33 2003/02/15 00:57:22 tom Exp $";
 #endif
 
 /*
@@ -29,9 +29,13 @@ static char *Id = "$Id: diffstat.c,v 1.32 2003/01/05 01:16:53 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
- *		04 Jan 2003, improve tracking of chunks in unified diff, in case
- *			     the original files contained a '+' or '-' in the
- *			     first column (Debian #155000).  Add -v option
+ *		14 Feb 2003, modify check for filenames to allow for some cases
+ *			     of incomplete dates (the reported example omitted
+ *			     the day of the month).  Correct a typo in usage().
+ *			     Add -e, -h, -o options.
+ *		04 Jan 2003, improve tracking of chunks in unified diff, in
+ *			     case the original files contained a '+' or '-' in
+ *			     the first column (Debian #155000).  Add -v option
  *			     (Debian #170947).  Modify to allocate buffers big
  *			     enough for long input lines.  Do additional
  *			     merging to handle unusual Index/diff constructs in
@@ -294,12 +298,16 @@ version_num(char *s)
     return (sscanf(s, "%d.%d%c", &main_ver, &sub_ver, temp) == 2);
 }
 
+/*
+ * Check for a range of line-numbers, used in editing scripts.
+ */
 static int
 edit_range(char *s)
 {
     int first, last;
     char temp[2];
-    return (sscanf(s, "%d,%d%c", &first, &last, temp) == 2);
+    return (sscanf(s, "%d,%d%c", &first, &last, temp) == 2)
+	|| (sscanf(s, "%d%c", &first, temp) == 1);
 }
 
 /*
@@ -716,7 +724,7 @@ do_file(FILE *fp)
 		    || (sscanf(buffer,
 			       "*** %[^\t ]%[\t ]",
 			       b_fname,
-			       b_temp1) == 1
+			       b_temp1) >= 1
 			&& !version_num(b_fname)
 			&& !contain_any(b_fname, "*")
 			&& !edit_range(b_fname))
@@ -941,7 +949,7 @@ is_compressed(char *name)
 #endif
 
 static void
-usage(void)
+usage(FILE *fp)
 {
     static char *msg[] =
     {
@@ -953,19 +961,21 @@ usage(void)
 	"",
 	"Options:",
 	"  -c      prefix each line with comment (#)",
+	"  -e FILE redirect standard error to FILE",
 	"  -f NUM  format (0=concise, 1=normal)",
+	"  -h      print this message",
 	"  -k      do not merge filenames",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
+	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -u      do not sort the input list",
 	"  -v      makes output more verbose",
-	"  -V      prints the version number"
+	"  -V      prints the version number",
 	"  -w NUM  specify maximum width of the output (default: 80)",
     };
     unsigned j;
     for (j = 0; j < sizeof(msg) / sizeof(msg[0]); j++)
-	fprintf(stderr, "%s\n", msg[j]);
-    exit(EXIT_FAILURE);
+	fprintf(fp, "%s\n", msg[j]);
 }
 
 int
@@ -976,19 +986,30 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt(argc, argv, "cf:kn:p:uvVw:")) != EOF) {
+    while ((j = getopt(argc, argv, "ce:f:hkn:o:p:uvVw:")) != EOF) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
 	    break;
+	case 'e':
+	    if (freopen(optarg, "w", stderr) == 0)
+		failed(optarg);
+	    break;
 	case 'f':
 	    format_opt = atoi(optarg);
 	    break;
+	case 'h':
+	    usage(stdout);
+	    return (EXIT_SUCCESS);
 	case 'k':
 	    merge_names = 0;
 	    break;
 	case 'n':
 	    name_wide = atoi(optarg);
+	    break;
+	case 'o':
+	    if (freopen(optarg, "w", stdout) == 0)
+		failed(optarg);
 	    break;
 	case 'p':
 	    prefix_opt = atoi(optarg);
@@ -1003,13 +1024,13 @@ main(int argc, char *argv[])
 	    if (!sscanf(Id, "%*s %*s %s", version))
 		(void) strcpy(version, "?");
 	    printf("diffstat version %s\n", version);
-	    exit(EXIT_SUCCESS);
+	    return (EXIT_SUCCESS);
 	case 'w':
 	    max_width = atoi(optarg);
 	    break;
 	default:
-	    usage();
-	    /*NOTREACHED */
+	    usage(stderr);
+	    return (EXIT_FAILURE);
 	}
     }
     show_progress = verbose && (!isatty(fileno(stdout))
@@ -1056,6 +1077,5 @@ main(int argc, char *argv[])
 	free(p);
     }
 #endif
-    exit(EXIT_SUCCESS);
-    /*NOTREACHED */
+    return (EXIT_SUCCESS);
 }

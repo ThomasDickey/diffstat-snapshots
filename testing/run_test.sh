@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.6 2003/01/04 19:33:15 tom Exp $
+# $Id: run_test.sh,v 1.7 2003/02/15 00:58:40 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -19,7 +19,7 @@ do
 		if [ ".$j" != "." ] ; then
 			N=$N`echo ./$j|sed -e 's@./-@@'`
 		fi
-		diffstat $j $I >$N.out 2>$N.err
+		diffstat -e $N.err -o $N.out $j $I
 		if [ -f $N.ref ]
 		then
 			if ( cmp -s $N.out $N.ref )
