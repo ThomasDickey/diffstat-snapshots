@@ -7,7 +7,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static	char	*Id = "$Id: diffstat.c,v 1.24 1996/03/17 00:34:14 tom Exp $";
+static	char	*Id = "$Id: diffstat.c,v 1.25 1996/03/24 23:40:36 tom Exp $";
 #endif
 
 /*
@@ -15,6 +15,7 @@ static	char	*Id = "$Id: diffstat.c,v 1.24 1996/03/17 00:34:14 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		24 Mar 1996, corrected -p0 logic, more fixes in merge_name.
  *		16 Mar 1996, corrected state-change for "Binary".  Added -p
  *			     option.
  *		17 Dec 1995, corrected matching algorithm in 'merge_name()'
@@ -94,6 +95,17 @@ extern	int	optind;
 #define EOS     '\0'
 #define BLANK   ' '
 
+#ifdef DEBUG
+#define TRACE(p) printf p;
+#else
+#define TRACE(p) /*nothing*/
+#endif
+
+#define HAVE_NOTHING 0
+#define HAVE_GENERIC 1	/* e.g., "Index: foo" w/o pathname */
+#define HAVE_PATH    2	/* reference-file from "diff dirname/foo" */
+#define HAVE_PATH2   4	/* comparison-file from "diff dirname/foo" */
+
 typedef	enum comment { Normal, Only, Binary } Comment;
 
 typedef	struct	_data	{
@@ -116,20 +128,24 @@ static	long	plot_scale;	/* the effective scale (1:maximum) */
 
 /******************************************************************************/
 #if	__STDC__
-static	void	failed (char *s);
+static	int	HadDiffs (DATA* p);
+static	int	begin_data (DATA* p);
 static	void	blip (int c);
-static	char *	new_string(char *s);
-static	DATA *	new_data(char *name);
-static	void	delink (DATA *p);
-static	int	match(char *s, char *p);
-static	int	version_num(char *s);
-static	int	HadDiffs (DATA *p);
-static	char *	merge_name (DATA *data, char *path);
-static	void	do_file(FILE *fp);
-static	long	plot_num(long num_value, int c, long extra);
-static	void	summarize(void);
-static	void	usage(void);
-	int	main(int argc, char *argv[]);
+static	int	can_be_merged (char* path);
+static	void	delink (DATA* p);
+static	void	do_file (FILE* fp);
+static	void	failed (char* s);
+static	int	is_leaf (char *leaf, char *path);
+static	int	match (char* s, char* p);
+static	char* 	merge_name (DATA* data, char* path);
+static	DATA* 	new_data (char* name);
+static	char* 	new_string (char* s);
+static	long	plot_num (long num_value, int c, long extra);
+static	void	summarize (void);
+static	void	usage (void);
+static	int	version_num (char* s);
+
+extern	int	main(int argc, char *argv[]);
 #endif
 /******************************************************************************/
 
@@ -164,6 +180,8 @@ DATA *	new_data(name)
 {
 	register DATA *p, *q, *r;
 
+	TRACE(("new_data(%s)\n", name))
+
 	/* insert into sorted list */
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 		int	cmp = strcmp(p->name, name);
@@ -191,13 +209,17 @@ DATA *	new_data(name)
 }
 
 /*
- * Remove a unneeded data item from the linked list
+ * Remove a unneeded data item from the linked list.  Don't free the name,
+ * since we may want it in another context.
  */
 static
 void	delink(data)
 	DATA	*data;
 {
 	register DATA *p, *q;
+
+	TRACE(("delink '%s'\n", data->name))
+
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 		if (p == data) {
 			if (q != 0)
@@ -245,15 +267,47 @@ int	HadDiffs(data)
 	  ||   data->mod != 0;
 }
 
+/*
+ * If the given path is not one of the "ignore" paths, then return true.
+ */
+static
+int	can_be_merged(path)
+	char	*path;
+{
+	if (strcmp(path, "")
+	 && strcmp(path, "/dev/null")
+	 && strncmp(path, "/tmp/", 5))
+	 	return TRUE;
+	return FALSE;
+}
+
+static
+int	is_leaf(leaf, path)
+	char	*leaf;
+	char	*path;
+{
+	char	*s;
+
+	if (strchr(leaf, PATHSEP) == 0
+	 && (s = strrchr(path, PATHSEP)) != 0
+	 && !strcmp(++s, leaf))
+	 	return TRUE;
+	return FALSE;
+}
+
 static
 char *	merge_name(data, path)
 	DATA	*data;
 	char	*path;
 {
+	TRACE(("merge_name(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)))
+
 	if (!HadDiffs(data)) { /* the data was the first of 2 markers */
-		if (strcmp(data->name, "")
-		 && strcmp(data->name, "/dev/null")
-		 && strncmp(data->name, "/tmp/", 5)) {
+		if (is_leaf(data->name, path)) {
+			TRACE(("is_leaf: %s vs %s\n", data->name, path))
+			delink(data);
+		} else if (can_be_merged(data->name)
+		    &&     can_be_merged(path)) {
 			int	len1 = strlen(data->name);
 			int	len2 = strlen(path);
 			int	n;
@@ -270,11 +324,31 @@ char *	merge_name(data, path)
 			if (prefix_opt < 0
 			 && matched != 0
 			 && diff)
-				path += len2 - n;
+				path += len2 - matched + 1;
+			delink(data);
+			TRACE(("merge @%d\n", __LINE__))
+		} else if (!can_be_merged(path)) {
+			TRACE(("merge @%d\n", __LINE__))
+			/* must not merge, retain existing name */
+			path = data->name;
+		} else {
+			TRACE(("merge @%d\n", __LINE__))
+			delink(data);
 		}
-		delink(data);
+	} else if (!can_be_merged(path)) {
+		path = data->name;
 	}
 	return path;
+}
+
+static
+int	begin_data(p)
+	DATA	*p;
+{
+	if (!can_be_merged(p->name)
+	 && strchr(p->name, PATHSEP) != 0)
+		return HAVE_PATH;
+	return HAVE_GENERIC;
 }
 
 static
@@ -283,7 +357,7 @@ void	do_file(fp)
 {
 	DATA	dummy, *this = &dummy;
 	char	buffer[BUFSIZ];
-	int	ok = FALSE;
+	int	ok = HAVE_NOTHING;
 	register char *s;
 
 	dummy.name = "";
@@ -333,18 +407,23 @@ void	do_file(fp)
 					blip('.');
 					this = new_data(path);
 					this->cmt = Only;
-					ok = TRUE;
+					ok = HAVE_NOTHING;
 				}
 			}
 			break;
 
-		case 'I':	/* Index (e.g., from makepatch) */
+			/*
+			 * Several different scripts produce "Index:" lines
+			 * (e.g., "makepatch").  Not all bother to put the
+			 * pathname of the files; some put only the leaf names.
+			 */
+		case 'I':
 			if (!match(buffer, "Index: "))
 				break;
 			s = strrchr(buffer, BLANK); /* last token is name */
 			blip('.');
 			this = new_data(s+1);
-			ok = TRUE;
+			ok = begin_data(this);
 			break;
 
 		case 'd':	/* diff command trace */
@@ -353,11 +432,12 @@ void	do_file(fp)
 			s = strrchr(buffer, BLANK);
 			blip('.');
 			this = new_data(s+1);
-			ok = TRUE;
+			ok = begin_data(this);
 			break;
 
 		case '*':
-			if (ok <= 0) {
+			TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer))
+			if (!(ok & HAVE_PATH)) {
 				char	fname[BUFSIZ];
 				char	wday[BUFSIZ], mmm[BUFSIZ];
 				int	ddd, hour, minute, second;
@@ -375,9 +455,10 @@ void	do_file(fp)
 					&hour, &minute, &second) == 7
 				  && !version_num(fname))
 				   ) {
-					ok = -TRUE;
 					s = merge_name(this, fname);
 					this = new_data(s);
+					ok = begin_data(this);
+					TRACE(("after merge:%d:%s\n", ok, s))
 				}
 			}
 			break;
@@ -422,7 +503,7 @@ void	do_file(fp)
 					blip('.');
 					this = new_data(s+1);
 					this->cmt = Binary;
-					ok = FALSE;
+					ok = HAVE_NOTHING;
 				}
 			}
 			break;
@@ -527,7 +608,7 @@ void	summarize()
 	for (p = all_data; p; p = p->link) {
 		printf(" %-*.*s|",
 			name_wide, name_wide,
-			p->name + (prefix_opt > 0 ? p->base : prefix_len));
+			p->name + (prefix_opt >= 0 ? p->base : prefix_len));
 		switch (p->cmt) {
 		default:
 		case Normal:
