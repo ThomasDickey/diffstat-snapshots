@@ -1,3 +1,11 @@
+10-Apr-2005
+	diffstat 1.39
+
+	change order of merging and prefix-stripping so stripping all prefixes,
+	e.g., with -p9, will be sorted as expected (patch by Jean Delvare).
+
+	correct a reference to freed memory after merging found with valgrind.
+
 16-Jan-2005
 	diffstat 1.38
 

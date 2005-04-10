@@ -1,3 +1,10 @@
+ Xlib-1.patch-    |only
+ Xlib-1.ref       |only
+ Xlib-2.patch-    |only
+ Xlib-2.ref       |only
+ Xlib-3.patch-    |only
+ Xlib-3.ref       |only
+ config-1.ref     |only
  config.cache     |   16 ++---!!!!!!
  config.h         |    2 +
  config.log       |   76 ++++++++++-----------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -6,13 +13,6 @@
  diffstat         |binary
  diffstat.o       |binary
  makefile         |    4 -!!
- Xlib-1.patch-    |only
- Xlib-1.ref       |only
- Xlib-2.patch-    |only
- Xlib-2.ref       |only
- Xlib-3.patch-    |only
- Xlib-3.ref       |only
- config-1.ref     |only
  nugent.ref       |only
  xserver-1.ref    |only
  xserver-2.patch- |only

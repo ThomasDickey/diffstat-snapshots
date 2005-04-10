@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.26 2005/01/16 23:22:00 tom Exp $
+# $Id: makefile.in,v 1.27 2005/04/10 12:58:43 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -78,7 +78,7 @@ uninstall :
 	rm -f $(bindir)/$(PROG) $(man1dir)/$(THIS).$(manext)
 
 mostlyclean :
-	rm -f *.o core *~ *.out *.BAK *.atac
+	rm -f *.o core *~ *.out *.err *.BAK *.atac
 
 clean : mostlyclean
 	rm -f $(PROG)
