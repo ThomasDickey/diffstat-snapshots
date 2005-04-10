@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.38 2005/01/16 18:03:32 Eric.Blake Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.39 2005/04/10 14:55:15 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.38 2005/01/16 18:03:32 Eric.Blake E
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		10 Apr 2005, change order of merging and prefix-stripping so
+ *			     stripping all prefixes, e.g., with -p9, will be
+ *			     sorted as expected (Patch by Jean Delvare
+ *			     <khali@linux-fr.org>).
  *		10 Jan 2005, add support for '--help' and '--version' (Patch
  *			     by Eric Blake <ebb9@byu.net>.)
  *		16 Dec 2004, fix a different case for data beginning with "--"
@@ -238,15 +242,30 @@ static DATA *
 new_data(const char *name)
 {
     DATA *p, *q, *r;
+    int base = 0;
 
     TRACE(("new_data(%s)\n", name));
 
+    /* Compute the base offset if the prefix option is used */
+    if (prefix_opt >= 0) {
+	int n;
+
+	for (n = prefix_opt; n > 0; n--) {
+	    char *s = strchr(name + base, PATHSEP);
+	    if (s == 0 || *++s == EOS)
+		break;
+	    base = s - name;
+	}
+	TRACE(("base set to %d\n", base));
+    }
+
     /* Insert into sorted list (usually sorted).  If we are not sorting or
      * merging names, we fall off the end and link the new entry to the end of
-     * the list.
+     * the list.  If the prefix option is used, the prefix is ignored by the
+     * merge and sort operations.
      */
     for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
-	int cmp = strcmp(p->name, name);
+	int cmp = strcmp(p->name + p->base, name + base);
 	if (merge_names && (cmp == 0))
 	    return p;
 	if (sort_names && (cmp > 0))
@@ -260,7 +279,7 @@ new_data(const char *name)
 
     r->link = p;
     r->name = new_string(name);
-    r->base = 0;
+    r->base = base;
     r->cmt = Normal;
     r->ins = 0;
     r->del = 0;
@@ -272,7 +291,7 @@ new_data(const char *name)
 /*
  * Remove a unneeded data item from the linked list.  Free the name as well.
  */
-static void
+static int
 delink(DATA * data)
 {
     DATA *p, *q;
@@ -287,9 +306,10 @@ delink(DATA * data)
 		all_data = p->link;
 	    free(p->name);
 	    free(p);
-	    return;
+	    return 1;
 	}
     }
+    return 0;
 }
 
 /* like strncmp, but without the 3rd argument */
@@ -388,14 +408,15 @@ is_leaf(const char *leaf, const char *path)
 }
 
 static char *
-do_merging(DATA * data, char *path)
+do_merging(DATA * data, char *path, int *freed)
 {
     TRACE(("do_merging(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
 
+    *freed = 0;
     if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
 	if (is_leaf(data->name, path)) {
 	    TRACE(("is_leaf: %s vs %s\n", data->name, path));
-	    delink(data);
+	    *freed = delink(data);
 	} else if (can_be_merged(data->name)
 		   && can_be_merged(path)) {
 	    size_t len1 = strlen(data->name);
@@ -433,7 +454,7 @@ do_merging(DATA * data, char *path)
 		&& diff)
 		path += len2 - matched + 1;
 
-	    delink(data);
+	    *freed = delink(data);
 	    TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
 		   __LINE__, prefix_opt, matched, diff));
 	} else if (!can_be_merged(path)) {
@@ -442,7 +463,7 @@ do_merging(DATA * data, char *path)
 	    path = data->name;
 	} else {
 	    TRACE(("merge @%d\n", __LINE__));
-	    delink(data);
+	    *freed = delink(data);
 	}
     } else if (!can_be_merged(path)) {
 	path = data->name;
@@ -562,6 +583,7 @@ do_file(FILE *fp)
     int ok = HAVE_NOTHING;
     int marker = -1;
     int unified = 0;
+    int freed = 0;
     int old_unify = 0;
     int new_unify = 0;
     int context = 1;
@@ -669,7 +691,7 @@ do_file(FILE *fp)
 		&& strcmp(prev->name, that->name)) {
 		TRACE(("giveup on %ld/%ld %s\n", that->ins, that->del, that->name));
 		TRACE(("revert to %ld/%ld %s\n", prev->ins, prev->del, prev->name));
-		delink(that);
+		(void) delink(that);
 		that = prev;
 		that->del += 1;
 	    }
@@ -744,7 +766,7 @@ do_file(FILE *fp)
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
-		s = do_merging(that, s);
+		s = do_merging(that, s, &freed);
 		that = new_data(s);
 		ok = begin_data(that);
 	    }
@@ -757,7 +779,7 @@ do_file(FILE *fp)
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
-		s = do_merging(that, s);
+		s = do_merging(that, s, &freed);
 		that = new_data(s);
 		ok = begin_data(that);
 	    }
@@ -808,7 +830,9 @@ do_file(FILE *fp)
 			&& !edit_range(b_fname))
 		    ) {
 		    prev = that;
-		    s = do_merging(that, b_fname);
+		    s = do_merging(that, b_fname, &freed);
+		    if (freed)
+			prev = 0;
 		    that = new_data(s);
 		    ok = begin_data(that);
 		    TRACE(("after merge:%d:%s\n", ok, s));
@@ -911,16 +935,9 @@ summarize(void)
 	 * through the first path-separator, etc.
 	 */
 	if (prefix_opt >= 0) {
-	    int n, base;
-	    for (n = prefix_opt, base = 0; n > 0; n--) {
-		char *s = strchr(p->name + base, PATHSEP);
-		if (s == 0 || *++s == EOS)
-		    break;
-		base = (int) (s - p->name);
-	    }
-	    p->base = base;
-	    if (name_wide < (len - base))
-		name_wide = (len - base);
+	    /* p->base has been computed at node creation */
+	    if (name_wide < (len - p->base))
+		name_wide = (len - p->base);
 	} else {
 	    if (len < prefix_len || prefix_len < 0)
 		prefix_len = len;
