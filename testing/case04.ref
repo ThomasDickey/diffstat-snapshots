@@ -1,11 +1,11 @@
  diffstat.orig/config.cache        |   16 ++--!!!!
  diffstat.orig/config.h            |    2 +
- diffstat.orig/config.log          |   76 +++++++------------!!!!!!!!!!!!!!!!!!!
+ diffstat.orig/config.log          |   76 +++++++------------!!!!!!!!!!!!!!!!!!
  diffstat.orig/config.status       |   24 +++---!!!!!!
  diffstat.orig/configure.out       |only
  diffstat.orig/diffstat            |binary
  diffstat.orig/diffstat.o          |binary
- diffstat.orig/makefile            |    4 -!
+ diffstat.orig/makefile            |    4 -
  diffstat/testing/Xlib-1.patch-    |only
  diffstat/testing/Xlib-1.ref       |only
  diffstat/testing/Xlib-2.patch-    |only

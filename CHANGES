@@ -1,3 +1,15 @@
+15-Aug-2005
+	diffstat 1.40
+
+	add options -l, -r and -t.  add to -f option (patch, comments by
+	Jean Delvare, Michael Burian).
+
+	improve I/O on Linux using fgetc_locked().
+
+	improve searching of long sorted lists using tsearch()
+
+	improve configure-script checks for Intel compiler warnings.
+
 10-Apr-2005
 	diffstat 1.39
 
