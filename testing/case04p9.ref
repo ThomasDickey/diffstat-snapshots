@@ -5,14 +5,14 @@
  Xlib-3.patch-    |only
  Xlib-3.ref       |only
  config-1.ref     |only
- config.cache     |   16 ++---!!!!!!
+ config.cache     |   16 ++---!!!!
  config.h         |    2 +
- config.log       |   76 ++++++++++-----------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!
- config.status    |   24 ++++----!!!!!!!!!
+ config.log       |   76 ++++++++++-----------------!!!!!!!!!!!!!!!!!!!!!!!!!!
+ config.status    |   24 ++++----!!!!!!!!
  configure.out    |only
  diffstat         |binary
  diffstat.o       |binary
- makefile         |    4 -!!
+ makefile         |    4 -
  nugent.ref       |only
  xserver-1.ref    |only
  xserver-2.patch- |only

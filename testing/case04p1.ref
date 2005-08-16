@@ -1,11 +1,11 @@
- config.cache             |   16 ++--!!!!!
+ config.cache             |   16 ++--!!!!
  config.h                 |    2 +
  config.log               |   76 +++++++++--------------!!!!!!!!!!!!!!!!!!!!!!!
- config.status            |   24 +++----!!!!!!!!
+ config.status            |   24 +++----!!!!!!
  configure.out            |only
  diffstat                 |binary
  diffstat.o               |binary
- makefile                 |    4 -!
+ makefile                 |    4 -
  testing/Xlib-1.patch-    |only
  testing/Xlib-1.ref       |only
  testing/Xlib-2.patch-    |only

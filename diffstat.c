@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.39 2005/04/10 14:55:15 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.40 2005/08/16 00:46:58 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,17 @@ static const char *Id = "$Id: diffstat.c,v 1.39 2005/04/10 14:55:15 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		15 Aug 2005, apply PLURAL() to num_files (Jean Delvare).
+ *			     add -l option (request by Michael Burian).
+ *			     Use fgetc_locked() if available.
+ *		14 Aug 2005, add -r2 option (rounding with adjustment to ensure
+ *			     that nonzero values always display a histogram
+ *			     bar), adapted from patch by Jean Delvare.  Extend
+ *			     the -f option (2=filled, 4=verbose).
+ *		12 Aug 2005, modify to use tsearch() for sorted lists.
+ *		11 Aug 2005, minor fixes to scaling of modified lines.  Add
+ *			     -r (round) option.
+ *		05 Aug 2005, add -t (table) option.
  *		10 Apr 2005, change order of merging and prefix-stripping so
  *			     stripping all prefixes, e.g., with -p9, will be
  *			     sorted as expected (Patch by Jean Delvare
@@ -137,6 +148,18 @@ extern int isatty();
 #include <malloc.h>
 #endif
 
+#if defined(HAVE_SEARCH_H) && defined(HAVE_TSEARCH)
+#include <search.h>
+#else
+#undef HAVE_TSEARCH
+#endif
+
+#ifdef HAVE_FGETC_LOCKED
+#define MY_FGETC fgetc_locked
+#else
+#define MY_FGETC fgetc
+#endif
+
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #else
@@ -177,32 +200,55 @@ extern int optind;
 #define HAVE_PATH    2		/* reference-file from "diff dirname/foo" */
 #define HAVE_PATH2   4		/* comparison-file from "diff dirname/foo" */
 
+#define FMT_CONCISE  0
+#define FMT_NORMAL   1
+#define FMT_FILLED   2
+#define FMT_VERBOSE  4
+
 typedef enum comment {
     Normal, Only, Binary
 } Comment;
+
+#define MARKS 3			/* each of +, - and ! */
+
+#define InsOf(p) (p)->count[0]	/* "+" count inserted lines */
+#define DelOf(p) (p)->count[1]	/* "-" count deleted lines */
+#define ModOf(p) (p)->count[2]	/* "!" count modified lines */
+
+#define TotalOf(p) (InsOf(p) + DelOf(p) + ModOf(p))
 
 typedef struct _data {
     struct _data *link;
     char *name;			/* the filename */
     int base;			/* beginning of name if -p option used */
     Comment cmt;
-    long ins;			/* "+" count inserted lines */
-    long del;			/* "-" count deleted lines */
-    long mod;			/* "!" count modified lines */
+    long count[3];
 } DATA;
+
+static const char marks[MARKS] = "+-!";
 
 static DATA *all_data;
 static char *comment_opt = "";
-static int format_opt = 1;
+static int format_opt = FMT_NORMAL;
 static int max_width;		/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
 static int name_wide;		/* the amount reserved for filenames */
+static int names_only;		/* true if we list filenames only */
 static int show_progress;	/* if not writing to tty, show progress */
 static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
+static int round_opt = 0;	/* if nonzero, round data for histogram */
+static int table_opt = 0;	/* if nonzero, write table rather than plot */
 static int sort_names = 1;	/* true if we sort filenames */
 static int verbose = 0;		/* -q/-v options */
 static long plot_scale;		/* the effective scale (1:maximum) */
+
+#ifdef HAVE_TSEARCH
+static int use_tsearch;
+static void *sorted_data;
+#endif
+
+static int prefix_len = -1;
 
 /******************************************************************************/
 
@@ -238,13 +284,35 @@ new_string(const char *s)
     return strcpy((char *) xmalloc((size_t) (strlen(s) + 1)), s);
 }
 
+static int
+compare_data(const void *a, const void *b)
+{
+    const DATA *p = (const DATA *) a;
+    const DATA *q = (const DATA *) b;
+    return strcmp(p->name + p->base, q->name + q->base);
+}
+
 static DATA *
-new_data(const char *name)
+new_data(char *name, int base)
+{
+    DATA *r = (DATA *) xmalloc(sizeof(DATA));
+
+    memset(r, 0, sizeof(*r));
+    r->name = new_string(name);
+    r->base = base;
+    r->cmt = Normal;
+
+    return r;
+}
+
+static DATA *
+find_data(char *name)
 {
     DATA *p, *q, *r;
+    DATA find;
     int base = 0;
 
-    TRACE(("new_data(%s)\n", name));
+    TRACE(("find_data(%s)\n", name));
 
     /* Compute the base offset if the prefix option is used */
     if (prefix_opt >= 0) {
@@ -259,31 +327,51 @@ new_data(const char *name)
 	TRACE(("base set to %d\n", base));
     }
 
+    /*
+     * Setup parameter for compare_data().
+     */
+    memset(&find, 0, sizeof(find));
+    find.name = name;
+    find.base = base;
+    find.cmt = Normal;
+
     /* Insert into sorted list (usually sorted).  If we are not sorting or
      * merging names, we fall off the end and link the new entry to the end of
      * the list.  If the prefix option is used, the prefix is ignored by the
      * merge and sort operations.
+     *
+     * If we have tsearch(), we will maintain the sorted list using it and
+     * tfind().
      */
-    for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
-	int cmp = strcmp(p->name + p->base, name + base);
-	if (merge_names && (cmp == 0))
+#ifdef HAVE_TSEARCH
+    if (use_tsearch) {
+	void *pp;
+	if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
+	    p = *(DATA **) pp;
 	    return p;
-	if (sort_names && (cmp > 0))
-	    break;
-    }
-    r = (DATA *) xmalloc(sizeof(DATA));
-    if (q != 0)
-	q->link = r;
-    else
+	}
+	r = new_data(name, base);
+	(void) tsearch(r, &sorted_data, compare_data);
+	r->link = all_data;
 	all_data = r;
+    } else
+#endif
+    {
+	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+	    int cmp = compare_data(p, &find);
+	    if (merge_names && (cmp == 0))
+		return p;
+	    if (sort_names && (cmp > 0))
+		break;
+	}
+	r = new_data(name, base);
+	if (q != 0)
+	    q->link = r;
+	else
+	    all_data = r;
 
-    r->link = p;
-    r->name = new_string(name);
-    r->base = base;
-    r->cmt = Normal;
-    r->ins = 0;
-    r->del = 0;
-    r->mod = 0;
+	r->link = p;
+    }
 
     return r;
 }
@@ -298,6 +386,11 @@ delink(DATA * data)
 
     TRACE(("delink '%s'\n", data->name));
 
+#ifdef HAVE_TSEARCH
+    if (use_tsearch)
+	if (tdelete(data, &sorted_data, compare_data) == 0)
+	    return 0;
+#endif
     for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	if (p == data) {
 	    if (q != 0)
@@ -376,9 +469,9 @@ decode_range(const char *s, int *first, int *second)
 static int
 HadDiffs(const DATA * data)
 {
-    return data->ins != 0
-	|| data->del != 0
-	|| data->mod != 0
+    return InsOf(data) != 0
+	|| DelOf(data) != 0
+	|| ModOf(data) != 0
 	|| data->cmt != Normal;
 }
 
@@ -396,13 +489,13 @@ can_be_merged(const char *path)
 }
 
 static int
-is_leaf(const char *leaf, const char *path)
+is_leaf(const char *theLeaf, const char *path)
 {
     char *s;
 
-    if (strchr(leaf, PATHSEP) == 0
+    if (strchr(theLeaf, PATHSEP) == 0
 	&& (s = strrchr(path, PATHSEP)) != 0
-	&& !strcmp(++s, leaf))
+	&& !strcmp(++s, theLeaf))
 	return 1;
     return 0;
 }
@@ -553,7 +646,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
     int ch;
     size_t used = 0;
 
-    while ((ch = fgetc(fp)) != EOF) {
+    while ((ch = MY_FGETC(fp)) != EOF) {
 	if (used + 2 > *have) {
 	    adjust_buffer(buffer, *have *= 2);
 	}
@@ -686,14 +779,14 @@ do_file(FILE *fp)
 	    TRACE(("Expected \"+++\" @%d:%s\n", __LINE__, buffer));
 	    if (prev != 0
 		&& prev != that
-		&& that->ins == 0
-		&& that->del == 0
+		&& InsOf(that) == 0
+		&& DelOf(that) == 0
 		&& strcmp(prev->name, that->name)) {
-		TRACE(("giveup on %ld/%ld %s\n", that->ins, that->del, that->name));
-		TRACE(("revert to %ld/%ld %s\n", prev->ins, prev->del, prev->name));
+		TRACE(("giveup on %ld/%ld %s\n", InsOf(that), DelOf(that), that->name));
+		TRACE(("revert to %ld/%ld %s\n", InsOf(prev), DelOf(prev), prev->name));
 		(void) delink(that);
 		that = prev;
-		that->del += 1;
+		DelOf(that) += 1;
 	    }
 	} else if (old_unify + new_unify) {
 	    switch (*buffer) {
@@ -748,7 +841,7 @@ do_file(FILE *fp)
 		}
 		if (found) {
 		    blip('.');
-		    that = new_data(path);
+		    that = find_data(path);
 		    that->cmt = Only;
 		    ok = HAVE_NOTHING;
 		}
@@ -767,7 +860,7 @@ do_file(FILE *fp)
 		dequote(s);
 		blip('.');
 		s = do_merging(that, s, &freed);
-		that = new_data(s);
+		that = find_data(s);
 		ok = begin_data(that);
 	    }
 	    break;
@@ -780,7 +873,7 @@ do_file(FILE *fp)
 		dequote(s);
 		blip('.');
 		s = do_merging(that, s, &freed);
-		that = new_data(s);
+		that = find_data(s);
 		ok = begin_data(that);
 	    }
 	    break;
@@ -833,7 +926,7 @@ do_file(FILE *fp)
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
-		    that = new_data(s);
+		    that = find_data(s);
 		    ok = begin_data(that);
 		    TRACE(("after merge:%d:%s\n", ok, s));
 		}
@@ -844,7 +937,7 @@ do_file(FILE *fp)
 	    /* FALL-THRU */
 	case '>':
 	    if (ok)
-		that->ins += 1;
+		InsOf(that) += 1;
 	    break;
 
 	case '-':
@@ -855,12 +948,12 @@ do_file(FILE *fp)
 	    /* fall-thru */
 	case '<':
 	    if (ok)
-		that->del += 1;
+		DelOf(that) += 1;
 	    break;
 
 	case '!':
 	    if (ok)
-		that->mod += 1;
+		ModOf(that) += 1;
 	    break;
 
 	    /* Expecting "Binary files XXX and YYY differ" */
@@ -873,7 +966,7 @@ do_file(FILE *fp)
 		    *s = EOS;
 		    s = strrchr(buffer, BLANK);
 		    blip('.');
-		    that = new_data(skip_blanks(s));
+		    that = find_data(skip_blanks(s));
 		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
 		}
@@ -892,39 +985,249 @@ do_file(FILE *fp)
     }
 }
 
+static long
+plot_bar(long count, int c)
+{
+    long result = count;
+
+    while (--count >= 0)
+	(void) putchar(c);
+
+    return result;
+}
+
 /*
  * Each call to 'plot_num()' prints a scaled bar of 'c' characters.  The
  * 'extra' parameter is used to keep the accumulated error in the bar's total
  * length from getting large.
  */
 static long
-plot_num(long num_value, int c, long extra)
+plot_num(long num_value, int c, long *extra)
 {
-    switch (format_opt) {
-    case 0:
-	printf("\t%ld %c", num_value, c);
-	return 0;
-    default:
-	/* the value to plot */
-	/* character to display in the bar */
-	/* accumulated error in the bar */
-	{
-	    long product = (plot_width * num_value) + extra;
-	    long count = (product / plot_scale);
-	    extra = product - (count * plot_scale);
-	    while (--count >= 0)
-		(void) putchar(c);
-	    return extra;
+    long product;
+    long result = 0;
+
+    /* the value to plot */
+    /* character to display in the bar */
+    /* accumulated error in the bar */
+    if (num_value) {
+	product = (plot_width * num_value);
+	result = ((product + *extra) / plot_scale);
+	*extra = product - (result * plot_scale) - *extra;
+	plot_bar(result, c);
+    }
+    return result;
+}
+
+static long
+plot_round1(const long num[MARKS])
+{
+    long result = 0;
+    long scaled[MARKS];
+    long remain[MARKS];
+    long want = 0;
+    long have = 0;
+    long half = (plot_scale / 2);
+    int i, j;
+
+    for (i = 0; i < MARKS; ++i) {
+	long product = (plot_width * num[i]);
+	scaled[i] = (product / plot_scale);
+	remain[i] = (product % plot_scale);
+	want += product;
+	have += product - remain[i];
+    }
+    while (want > have) {
+	for (i = 0, j = -1; i < MARKS; ++i) {
+	    if (remain[i] != 0
+		&& (remain[i] > (j >= 0 ? remain[j] : half))) {
+		j = i;
+	    }
+	}
+	if (j >= 0) {
+	    have += remain[j];
+	    remain[j] = 0;
+	    scaled[j] += 1;
+	} else {
+	    break;
+	}
+    }
+    for (i = 0; i < MARKS; ++i) {
+	plot_bar(scaled[i], marks[i]);
+	result += scaled[i];
+    }
+    return result;
+}
+
+/*
+ * Print a scaled bar of characters, where c[0] is for insertions, c[1]
+ * for deletions and c[2] for modifications. The num array contains the
+ * count for each type of change, in the same order.
+ */
+static long
+plot_round2(const long num[MARKS])
+{
+    long result = 0;
+    long scaled[MARKS];
+    long remain[MARKS];
+    long total;
+    int i;
+
+    for (total = 0, i = 0; i < MARKS; i++)
+	total += num[i];
+
+    if (total == 0)
+	return result;
+
+    total = (total * plot_width + (plot_scale / 2)) / plot_scale;
+    /* display at least one character */
+    if (total == 0)
+	total++;
+
+    for (i = 0; i < MARKS; i++) {
+	scaled[i] = num[i] * plot_width / plot_scale;
+	remain[i] = num[i] * plot_width - scaled[i] * plot_scale;
+	total -= scaled[i];
+    }
+
+    /* assign the missing chars using the largest remainder algo */
+    while (total) {
+	int largest, largest_count;	/* largest is a bit field */
+	long max_remain;
+
+	/* search for the largest remainder */
+	largest = largest_count = 0;
+	max_remain = 0;
+	for (i = 0; i < MARKS; i++) {
+	    if (remain[i] > max_remain) {
+		largest = 1 << i;
+		largest_count = 1;
+		max_remain = remain[i];
+	    } else if (remain[i] == max_remain) {	/* ex aequo */
+		largest |= 1 << i;
+		largest_count++;
+	    }
+	}
+
+	/* if there are more greatest remainders than characters
+	   missing, don't assign them at all */
+	if (total < largest_count)
+	    break;
+
+	/* allocate the extra characters */
+	for (i = 0; i < MARKS; i++) {
+	    if (largest & (1 << i)) {
+		scaled[i]++;
+		total--;
+		remain[i] -= plot_width;
+	    }
+	}
+    }
+
+    for (i = 0; i < MARKS; i++)
+	result += plot_bar(scaled[i], marks[i]);
+
+    return result;
+}
+
+static void
+plot_numbers(const DATA * p)
+{
+    long temp = 0;
+    long used = 0;
+    int i;
+
+    printf("%5ld ", TotalOf(p));
+
+    if (format_opt & FMT_VERBOSE) {
+	printf("%5ld ", InsOf(p));
+	printf("%5ld ", DelOf(p));
+	printf("%5ld ", ModOf(p));
+    }
+
+    if (format_opt == FMT_CONCISE) {
+	for (i = 0; i < MARKS; i++) {
+	    printf("\t%ld %c", p->count[i], marks[i]);
+	}
+    } else {
+	switch (round_opt) {
+	default:
+	    for (i = 0; i < MARKS; ++i)
+		used += plot_num(p->count[i], marks[i], &temp);
+	    break;
+	case 1:
+	    used = plot_round1(p->count);
+	    break;
+
+	case 2:
+	    used = plot_round2(p->count);
+	    break;
+	}
+
+	if ((format_opt & FMT_FILLED) != 0) {
+	    if (used > plot_width)
+		printf("%ld", used - plot_width);	/* oops */
+	    else
+		plot_bar(plot_width - used, '.');
 	}
     }
 }
+
+static void
+show_data(const DATA * p)
+{
+    char *name = p->name + (prefix_opt >= 0 ? p->base : prefix_len);
+
+    if (table_opt) {
+	if (names_only) {
+	    printf("%s\n", name);
+	} else {
+	    printf("%ld,%ld,%ld,%s\n",
+		   InsOf(p),
+		   DelOf(p),
+		   ModOf(p),
+		   name);
+	}
+    } else if (names_only) {
+	printf("%s\n", name);
+    } else {
+	printf("%s %-*.*s|",
+	       comment_opt,
+	       name_wide, name_wide,
+	       name);
+	switch (p->cmt) {
+	default:
+	case Normal:
+	    plot_numbers(p);
+	    break;
+	case Binary:
+	    printf("binary");
+	    break;
+	case Only:
+	    printf("only");
+	    break;
+	}
+	printf("\n");
+    }
+}
+
+#ifdef HAVE_TSEARCH
+static void
+show_tsearch(const void *nodep, const VISIT which, const int depth)
+{
+    const DATA *p = *(DATA * const *) nodep;
+    (void) depth;
+    if (which == postorder || which == leaf)
+	show_data(p);
+}
+#endif
 
 static void
 summarize(void)
 {
     DATA *p;
     long total_ins = 0, total_del = 0, total_mod = 0, temp;
-    int num_files = 0, shortest_name = -1, longest_name = -1, prefix_len = -1;
+    int num_files = 0, shortest_name = -1, longest_name = -1;
 
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
@@ -957,10 +1260,10 @@ summarize(void)
 	}
 
 	num_files++;
-	total_ins += p->ins;
-	total_del += p->del;
-	total_mod += p->mod;
-	temp = p->ins + p->del + p->mod;
+	total_ins += InsOf(p);
+	total_del += DelOf(p);
+	total_mod += ModOf(p);
+	temp = TotalOf(p);
 	if (temp > plot_scale)
 	    plot_scale = temp;
     }
@@ -980,39 +1283,30 @@ summarize(void)
     if (plot_scale < plot_width)
 	plot_scale = plot_width;	/* 1:1 */
 
-    for (p = all_data; p; p = p->link) {
-	printf("%s %-*.*s|",
-	       comment_opt,
-	       name_wide, name_wide,
-	       p->name + (prefix_opt >= 0 ? p->base : prefix_len));
-	switch (p->cmt) {
-	default:
-	case Normal:
-	    temp = 0;
-	    printf("%5ld ", p->ins + p->del + p->mod);
-	    temp = plot_num(p->ins, '+', temp);
-	    (void) plot_num(p->del, '-', temp);
-	    (void) plot_num(p->mod, '!', temp);
-	    break;
-	case Binary:
-	    printf("binary");
-	    break;
-	case Only:
-	    printf("only");
-	    break;
-	}
-	printf("\n");
-    }
+    if (table_opt)
+	printf("%sFILENAME\n",
+	       (names_only ? "" : "INSERTED,DELETED,MODIFIED,"));
 
-    printf("%s %d files changed", comment_opt, num_files);
+#ifdef HAVE_TSEARCH
+    if (use_tsearch) {
+	twalk(sorted_data, show_tsearch);
+    } else
+#endif
+	for (p = all_data; p; p = p->link) {
+	    show_data(p);
+	}
+
+    if (!table_opt && !names_only) {
 #define PLURAL(n) n, n != 1 ? "s" : ""
-    if (total_ins)
-	printf(", %ld insertion%s(+)", PLURAL(total_ins));
-    if (total_del)
-	printf(", %ld deletion%s(-)", PLURAL(total_del));
-    if (total_mod)
-	printf(", %ld modification%s(!)", PLURAL(total_mod));
-    (void) putchar('\n');
+	printf("%s %d file%s changed", comment_opt, PLURAL(num_files));
+	if (total_ins)
+	    printf(", %ld insertion%s(+)", PLURAL(total_ins));
+	if (total_del)
+	    printf(", %ld deletion%s(-)", PLURAL(total_del));
+	if (total_mod)
+	    printf(", %ld modification%s(!)", PLURAL(total_mod));
+	(void) putchar('\n');
+    }
 }
 
 #ifdef HAVE_POPEN
@@ -1056,9 +1350,11 @@ usage(FILE *fp)
 	"  -f NUM  format (0=concise, 1=normal)",
 	"  -h      print this message",
 	"  -k      do not merge filenames",
+	"  -l      list filenames only",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
+	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
 	"  -v      makes output more verbose",
 	"  -V      prints the version number",
@@ -1097,7 +1393,7 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt_helper(argc, argv, "ce:f:hkn:o:p:uvVw:", 'h', 'V'))
+    while ((j = getopt_helper(argc, argv, "ce:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'c':
@@ -1116,6 +1412,9 @@ main(int argc, char *argv[])
 	case 'k':
 	    merge_names = 0;
 	    break;
+	case 'l':
+	    names_only = 1;
+	    break;
 	case 'n':
 	    name_wide = atoi(optarg);
 	    break;
@@ -1125,6 +1424,12 @@ main(int argc, char *argv[])
 	    break;
 	case 'p':
 	    prefix_opt = atoi(optarg);
+	    break;
+	case 'r':
+	    round_opt = atoi(optarg);
+	    break;
+	case 't':
+	    table_opt = 1;
 	    break;
 	case 'u':
 	    sort_names = 0;
@@ -1149,6 +1454,10 @@ main(int argc, char *argv[])
     }
     show_progress = verbose && (!isatty(fileno(stdout))
 				&& isatty(fileno(stderr)));
+
+#ifdef HAVE_TSEARCH
+    use_tsearch = (sort_names && merge_names);
+#endif
 
     if (optind < argc) {
 	while (optind < argc) {

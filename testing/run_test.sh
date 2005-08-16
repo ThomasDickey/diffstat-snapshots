@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.9 2005/01/16 17:58:00 Eric.Blake Exp $
+# $Id: run_test.sh,v 1.11 2005/08/14 17:50:38 tom Exp $
 # Test-script for DIFFSTAT
 if [ $# = 0 ]
 then
@@ -13,7 +13,7 @@ PATH=`cd ..;pwd`:$PATH; export PATH
 for item in $*
 do
 	echo "testing `basename $item .pat`"
-	for OPTS in "" "-p1" "-p9" "-f0" "-u" "-k"
+	for OPTS in "" "-p1" "-p9" "-f0" "-u" "-k" "-r1" "-r2"
 	do
 		NAME=`echo $item | sed -e 's/.pat$//'`
 		DATA=$NAME.pat
