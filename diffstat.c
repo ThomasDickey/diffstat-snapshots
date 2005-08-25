@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.40 2005/08/16 00:46:58 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.41 2005/08/24 20:47:34 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,7 @@ static const char *Id = "$Id: diffstat.c,v 1.40 2005/08/16 00:46:58 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		24 Aug 2005, update usage message for -l, -r changes.
  *		15 Aug 2005, apply PLURAL() to num_files (Jean Delvare).
  *			     add -l option (request by Michael Burian).
  *			     Use fgetc_locked() if available.
@@ -225,7 +226,7 @@ typedef struct _data {
     long count[3];
 } DATA;
 
-static const char marks[MARKS] = "+-!";
+static const char marks[MARKS + 1] = "+-!";
 
 static DATA *all_data;
 static char *comment_opt = "";
@@ -623,7 +624,7 @@ dequote(char *s)
 static void
 fixed_buffer(char **buffer, size_t want)
 {
-    *buffer = xmalloc(want);
+    *buffer = (char *) xmalloc(want);
 }
 
 /*
@@ -632,7 +633,7 @@ fixed_buffer(char **buffer, size_t want)
 static void
 adjust_buffer(char **buffer, size_t want)
 {
-    if ((*buffer = realloc(*buffer, want)) == 0)
+    if ((*buffer = (char *) realloc(*buffer, want)) == 0)
 	failed("realloc");
 }
 
@@ -1342,18 +1343,19 @@ usage(FILE *fp)
 	"",
 	"Reads from one or more input files which contain output from 'diff',",
 	"producing a histogram of total lines changed for each file referenced.",
-	"If no filename is given on the command line, reads from stdin.",
+	"If no filename is given on the command line, reads from standard input.",
 	"",
 	"Options:",
 	"  -c      prefix each line with comment (#)",
 	"  -e FILE redirect standard error to FILE",
-	"  -f NUM  format (0=concise, 1=normal)",
+	"  -f NUM  format (0=concise, 1=normal, 2=filled, 4=values)",
 	"  -h      print this message",
 	"  -k      do not merge filenames",
 	"  -l      list filenames only",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
+	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
 	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
 	"  -v      makes output more verbose",
@@ -1494,10 +1496,7 @@ main(int argc, char *argv[])
     summarize();
 #if defined(DEBUG) || defined(NO_LEAKS)
     while (all_data != 0) {
-	DATA *p = all_data;
-	all_data = all_data->link;
-	free(p->name);
-	free(p);
+	delink(all_data);
     }
 #endif
     return (EXIT_SUCCESS);
