@@ -1,3 +1,17 @@
+02-Jul-2006
+	diffstat 1.42
+
+	do not ignore pathnames in /tmp/, since some tools create usable
+	pathnames for both old/new files there (Debian #376086).
+
+	correct ifdef for fgetc_unlocked().
+
+	updated configure macros CF_GCC_VERSION, CF_PATH_SYNTAX and
+	CF_XOPEN_SOURCE
+
+	add configure check for compress, gzip and bzip2 programs that may be
+	used to decompress files.
+
 24-Aug-2005
 	diffstat 1.41
 
