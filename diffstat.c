@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2004,2005 by Thomas E. Dickey                               *
+ * Copyright 1994-2005,2006 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.41 2005/08/24 20:47:34 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.42 2006/07/02 15:58:37 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,12 @@ static const char *Id = "$Id: diffstat.c,v 1.41 2005/08/24 20:47:34 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		02 Jul 2006, do not ignore pathnames in /tmp/, since some tools
+ *			     create usable pathnames for both old/new files
+ *			     there (Debian #376086).  Correct ifdef for
+ *			     fgetc_unlocked().  Add configure check for
+ *			     compress, gzip and bzip2 programs that may be used
+ *			     to decompress files.
  *		24 Aug 2005, update usage message for -l, -r changes.
  *		15 Aug 2005, apply PLURAL() to num_files (Jean Delvare).
  *			     add -l option (request by Michael Burian).
@@ -155,8 +161,8 @@ extern int isatty();
 #undef HAVE_TSEARCH
 #endif
 
-#ifdef HAVE_FGETC_LOCKED
-#define MY_FGETC fgetc_locked
+#ifdef HAVE_FGETC_UNLOCKED
+#define MY_FGETC fgetc_unlocked
 #else
 #define MY_FGETC fgetc
 #endif
@@ -172,6 +178,18 @@ extern int optind;
 #if !defined(EXIT_SUCCESS)
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
+#endif
+
+#ifndef COMPRESS_PATH
+#define COMPRESS_PATH ""
+#endif
+
+#ifndef GZIP_PATH
+#define GZIP_PATH     ""
+#endif
+
+#ifndef BZIP_PATH
+#define BZIP_PATH     ""
 #endif
 
 /******************************************************************************/
@@ -482,11 +500,11 @@ HadDiffs(const DATA * data)
 static int
 can_be_merged(const char *path)
 {
+    int result = 0;
     if (strcmp(path, "")
-	&& strcmp(path, "/dev/null")
-	&& strncmp(path, "/tmp/", 5))
-	return 1;
-    return 0;
+	&& strcmp(path, "/dev/null"))
+	result = 1;
+    return result;
 }
 
 static int
@@ -1319,15 +1337,15 @@ is_compressed(const char *name)
     size_t len = strlen(name);
 
     if (len > 2 && !strcmp(name + len - 2, ".Z")) {
-	verb = "compress -dc %s";
+	verb = COMPRESS_PATH;
     } else if (len > 3 && !strcmp(name + len - 3, ".gz")) {
-	verb = "gzip -dc %s";
+	verb = GZIP_PATH;
     } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
-	verb = "bzip2 -dc %s";
+	verb = BZIP_PATH;
     }
-    if (verb != 0) {
-	result = (char *) xmalloc(strlen(verb) + len);
-	sprintf(result, verb, name);
+    if (verb != 0 && *verb != '\0') {
+	result = (char *) xmalloc(strlen(verb) + 10 + len);
+	sprintf(result, "%s -dc %s", verb, name);
     }
     return result;
 
