@@ -1,3 +1,9 @@
+16-Jul-2006
+	diffstat 1.43
+
+	fix to avoid modifying data which is being used by tsearch() for
+	ordering the binary tree (report by Adrian Bunk).
+
 02-Jul-2006
 	diffstat 1.42
 

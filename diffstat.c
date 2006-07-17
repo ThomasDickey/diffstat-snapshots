@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.42 2006/07/02 15:58:37 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.43 2006/07/16 23:56:47 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,9 @@ static const char *Id = "$Id: diffstat.c,v 1.42 2006/07/02 15:58:37 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		16 Jul 2006, fix to avoid modifying which is being used by
+ *			     tsearch() for ordering the binary tree (report by
+ *			     Adrian Bunk).
  *		02 Jul 2006, do not ignore pathnames in /tmp/, since some tools
  *			     create usable pathnames for both old/new files
  *			     there (Debian #376086).  Correct ifdef for
@@ -311,18 +314,46 @@ compare_data(const void *a, const void *b)
     return strcmp(p->name + p->base, q->name + q->base);
 }
 
+static void
+init_data(DATA * data, char *name, int base)
+{
+    memset(data, 0, sizeof(*data));
+    data->name = name;
+    data->base = base;
+    data->cmt = Normal;
+}
+
 static DATA *
 new_data(char *name, int base)
 {
     DATA *r = (DATA *) xmalloc(sizeof(DATA));
 
-    memset(r, 0, sizeof(*r));
-    r->name = new_string(name);
-    r->base = base;
-    r->cmt = Normal;
+    init_data(r, new_string(name), base);
 
     return r;
 }
+
+#ifdef HAVE_TSEARCH
+static DATA *
+add_tsearch_data(char *name, int base)
+{
+    DATA find;
+    DATA *result;
+    void *pp;
+
+    init_data(&find, name, base);
+    if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
+	result = *(DATA **) pp;
+	return result;
+    }
+    result = new_data(name, base);
+    (void) tsearch(result, &sorted_data, compare_data);
+    result->link = all_data;
+    all_data = result;
+
+    return result;
+}
+#endif
 
 static DATA *
 find_data(char *name)
@@ -346,14 +377,6 @@ find_data(char *name)
 	TRACE(("base set to %d\n", base));
     }
 
-    /*
-     * Setup parameter for compare_data().
-     */
-    memset(&find, 0, sizeof(find));
-    find.name = name;
-    find.base = base;
-    find.cmt = Normal;
-
     /* Insert into sorted list (usually sorted).  If we are not sorting or
      * merging names, we fall off the end and link the new entry to the end of
      * the list.  If the prefix option is used, the prefix is ignored by the
@@ -364,18 +387,11 @@ find_data(char *name)
      */
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
-	void *pp;
-	if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
-	    p = *(DATA **) pp;
-	    return p;
-	}
-	r = new_data(name, base);
-	(void) tsearch(r, &sorted_data, compare_data);
-	r->link = all_data;
-	all_data = r;
+	r = add_tsearch_data(name, base);
     } else
 #endif
     {
+	init_data(&find, name, base);
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	    int cmp = compare_data(p, &find);
 	    if (merge_names && (cmp == 0))
@@ -406,9 +422,10 @@ delink(DATA * data)
     TRACE(("delink '%s'\n", data->name));
 
 #ifdef HAVE_TSEARCH
-    if (use_tsearch)
+    if (use_tsearch) {
 	if (tdelete(data, &sorted_data, compare_data) == 0)
 	    return 0;
+    }
 #endif
     for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	if (p == data) {
@@ -536,13 +553,36 @@ do_merging(DATA * data, char *path, int *freed)
 	    unsigned n;
 	    int matched = 0;
 	    int diff = 0;
+	    int local = 0;
 
-	    /* strip suffixes such as ".orig", ".bak" */
+	    /*
+	     * Strip suffixes such as ".orig", ".bak", "~", etc.  The current
+	     * data for the merge is in 'path'.  The previous data (in
+	     * 'data->name') may also be a temporary filename (which would not
+	     * be merged since it has no apparent relationship to the current).
+	     */
 	    if (len1 > len2) {
 		if (!strncmp(data->name, path, len2)) {
 		    TRACE(("trimming data '%s' to '%.*s'\n",
 			   data->name, (int) len2, data->name));
-		    data->name[len1 = len2] = EOS;
+		    len1 = len2;
+#ifdef HAVE_TSEARCH
+		    /*
+		     * If we are using tsearch(), make a local copy of the data
+		     * so we can trim it without interfering with tsearch's
+		     * notion of the ordering of data.  That will create some
+		     * spurious empty data, so we add the changed() macro in a
+		     * few places to skip over those.
+		     */
+		    if (use_tsearch) {
+			char *trim = new_string(data->name);
+			trim[len1] = EOS;
+			data = add_tsearch_data(trim, data->base);
+			free(trim);
+			local = 1;
+		    } else
+#endif
+			data->name[len1] = EOS;
 		}
 	    } else if (len1 < len2) {
 		if (!strncmp(data->name, path, len1)) {
@@ -566,7 +606,8 @@ do_merging(DATA * data, char *path, int *freed)
 		&& diff)
 		path += len2 - matched + 1;
 
-	    *freed = delink(data);
+	    if (!local)
+		*freed = delink(data);
 	    TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
 		   __LINE__, prefix_opt, matched, diff));
 	} else if (!can_be_merged(path)) {
@@ -1192,12 +1233,16 @@ plot_numbers(const DATA * p)
     }
 }
 
+#define changed(p) (!merge_names || (p)->cmt != Normal || (InsOf(p) + DelOf(p) + ModOf(p)) != 0)
+
 static void
 show_data(const DATA * p)
 {
     char *name = p->name + (prefix_opt >= 0 ? p->base : prefix_len);
 
-    if (table_opt) {
+    if (!changed(p)) {
+	;
+    } else if (table_opt) {
 	if (names_only) {
 	    printf("%s\n", name);
 	} else {
@@ -1251,6 +1296,9 @@ summarize(void)
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
 	int len = strlen(p->name);
+
+	if (!changed(p))
+	    continue;
 
 	/*
 	 * "-p0" gives the whole pathname unmodified.  "-p1" strips
