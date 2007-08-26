@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.27 2005/04/10 12:58:43 tom Exp $
+# $Id: makefile.in,v 1.28 2007/08/26 14:10:18 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -41,7 +41,7 @@ PROG		= $(THIS)$x
 
 SRC =		CHANGES \
 		README $(THIS).c $(THIS).1 \
-		config_h.in install.sh mkdirs.sh \
+		config_h.in install-sh mkdirs.sh \
 		makefile.in configure.in aclocal.m4 \
 		makefile.wnt
 
