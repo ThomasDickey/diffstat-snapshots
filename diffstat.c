@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2005,2006 by Thomas E. Dickey                               *
+ * Copyright 1994-2006,2007 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.43 2006/07/16 23:56:47 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.44 2007/08/26 18:59:23 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,13 @@ static const char *Id = "$Id: diffstat.c,v 1.43 2006/07/16 23:56:47 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		26 Aug 2007, add "-d" option to show debugging traces, rather
+ *			     than by defining DEBUG.  Add check after
+ *			     unified-diff chunk to avoid adding non-diff text
+ *			     (report by Adrian Bunk).  Quote pathname passed
+ *			     in command to gzip/uncompress.  Add a check for
+ *			     default-diff output without the "diff" command
+ *			     supplied to provide filename, mark as "unknown".
  *		16 Jul 2006, fix to avoid modifying which is being used by
  *			     tsearch() for ordering the binary tree (report by
  *			     Adrian Bunk).
@@ -145,13 +152,13 @@ static const char *Id = "$Id: diffstat.c,v 1.43 2006/07/16 23:56:47 tom Exp $";
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
 #else
-extern int atoi();
+extern int atoi(const char *);
 #endif
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #else
-extern int isatty();
+extern int isatty(int);
 #endif
 
 #ifdef HAVE_MALLOC_H
@@ -209,8 +216,12 @@ extern int optind;
 
 #define UC(c)   ((unsigned char)(c))
 
-#ifdef DEBUG
-#define TRACE(p) printf p
+#ifndef OPT_TRACE
+#define OPT_TRACE 1
+#endif
+
+#if OPT_TRACE
+#define TRACE(p) if (trace_opt) printf p
 #else
 #define TRACE(p)		/*nothing */
 #endif
@@ -261,6 +272,7 @@ static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
 static int round_opt = 0;	/* if nonzero, round data for histogram */
 static int table_opt = 0;	/* if nonzero, write table rather than plot */
+static int trace_opt = 0;	/* if nonzero, write debugging information */
 static int sort_names = 1;	/* true if we sort filenames */
 static int verbose = 0;		/* -q/-v options */
 static long plot_scale;		/* the effective scale (1:maximum) */
@@ -362,7 +374,7 @@ find_data(char *name)
     DATA find;
     int base = 0;
 
-    TRACE(("find_data(%s)\n", name));
+    TRACE(("** find_data(%s)\n", name));
 
     /* Compute the base offset if the prefix option is used */
     if (prefix_opt >= 0) {
@@ -374,7 +386,7 @@ find_data(char *name)
 		break;
 	    base = s - name;
 	}
-	TRACE(("base set to %d\n", base));
+	TRACE(("** base set to %d\n", base));
     }
 
     /* Insert into sorted list (usually sorted).  If we are not sorting or
@@ -419,7 +431,7 @@ delink(DATA * data)
 {
     DATA *p, *q;
 
-    TRACE(("delink '%s'\n", data->name));
+    TRACE(("** delink '%s'\n", data->name));
 
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
@@ -483,6 +495,50 @@ edit_range(const char *s)
 }
 
 /*
+ * Decode a range for default diff.
+ */
+static int
+decode_default(char *s,
+	       int *first, int *first_size,
+	       int *second, int *second_size)
+{
+    int rc = 0;
+    char *next;
+
+    if (isdigit(UC(*s))) {
+	*first_size = 1;
+	*second_size = 1;
+
+	*first = strtol(s, &next, 10);
+	if (next != 0 && next != s) {
+	    if (*next == ',') {
+		s = ++next;
+		*first_size = strtol(s, &next, 10) + 1 - *first;
+	    }
+	}
+	if (next != 0 && next != s) {
+	    switch (*next++) {
+	    case 'a':
+	    case 'c':
+	    case 'd':
+		s = next;
+		*second = strtol(s, &next, 10);
+		if (next != 0 && next != s) {
+		    if (*next == ',') {
+			s = ++next;
+			*second_size = strtol(s, &next, 10) + 1 - *second;
+		    }
+		}
+		if (next != 0 && next != s && *next == '\0')
+		    rc = 1;
+		break;
+	    }
+	}
+    }
+    return rc;
+}
+
+/*
  * Decode a range for unified diff.  Oddly, the comments in diffutils code
  * claim that both numbers are line-numbers.  However, inspection of the output
  * shows that the numbers are a line-number followed by a count.
@@ -490,16 +546,20 @@ edit_range(const char *s)
 static int
 decode_range(const char *s, int *first, int *second)
 {
+    int rc = 0;
     char check;
-    if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
-	TRACE(("decode_range #1 first=%d, second=%d\n", *first, *second));
-	return 1;
-    } else if (sscanf(s, "%d%c", first, &check) == 1) {
-	*second = *first;	/* diffutils 2.7 does this */
-	TRACE(("decode_range #2 first=%d, second=%d\n", *first, *second));
-	return 1;
+
+    if (isdigit(UC(*s))) {
+	if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
+	    TRACE(("** decode_range #1 first=%d, second=%d\n", *first, *second));
+	    rc = 1;
+	} else if (sscanf(s, "%d%c", first, &check) == 1) {
+	    *second = *first;	/* diffutils 2.7 does this */
+	    TRACE(("** decode_range #2 first=%d, second=%d\n", *first, *second));
+	    rc = 1;
+	}
     }
-    return 0;
+    return rc;
 }
 
 static int
@@ -539,12 +599,12 @@ is_leaf(const char *theLeaf, const char *path)
 static char *
 do_merging(DATA * data, char *path, int *freed)
 {
-    TRACE(("do_merging(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
+    TRACE(("** do_merging(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
 
     *freed = 0;
     if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
 	if (is_leaf(data->name, path)) {
-	    TRACE(("is_leaf: %s vs %s\n", data->name, path));
+	    TRACE(("** is_leaf: %s vs %s\n", data->name, path));
 	    *freed = delink(data);
 	} else if (can_be_merged(data->name)
 		   && can_be_merged(path)) {
@@ -563,7 +623,7 @@ do_merging(DATA * data, char *path, int *freed)
 	     */
 	    if (len1 > len2) {
 		if (!strncmp(data->name, path, len2)) {
-		    TRACE(("trimming data '%s' to '%.*s'\n",
+		    TRACE(("** trimming data '%s' to '%.*s'\n",
 			   data->name, (int) len2, data->name));
 		    len1 = len2;
 #ifdef HAVE_TSEARCH
@@ -586,7 +646,7 @@ do_merging(DATA * data, char *path, int *freed)
 		}
 	    } else if (len1 < len2) {
 		if (!strncmp(data->name, path, len1)) {
-		    TRACE(("trimming path '%s' to '%.*s'\n",
+		    TRACE(("** trimming path '%s' to '%.*s'\n",
 			   path, (int) len1, path));
 		    path[len2 = len1] = EOS;
 		}
@@ -608,20 +668,20 @@ do_merging(DATA * data, char *path, int *freed)
 
 	    if (!local)
 		*freed = delink(data);
-	    TRACE(("merge @%d, prefix_opt=%d matched=%d diff=%d\n",
+	    TRACE(("** merge @%d, prefix_opt=%d matched=%d diff=%d\n",
 		   __LINE__, prefix_opt, matched, diff));
 	} else if (!can_be_merged(path)) {
-	    TRACE(("do not merge, retain @%d\n", __LINE__));
+	    TRACE(("** do not merge, retain @%d\n", __LINE__));
 	    /* must not merge, retain existing name */
 	    path = data->name;
 	} else {
-	    TRACE(("merge @%d\n", __LINE__));
+	    TRACE(("** merge @%d\n", __LINE__));
 	    *freed = delink(data);
 	}
     } else if (!can_be_merged(path)) {
 	path = data->name;
     }
-    TRACE(("...do_merging %s\n", path));
+    TRACE(("** finish do_merging ->%s\n", path));
     return path;
 }
 
@@ -630,10 +690,10 @@ begin_data(const DATA * p)
 {
     if (!can_be_merged(p->name)
 	&& strchr(p->name, PATHSEP) != 0) {
-	TRACE(("begin_data:HAVE_PATH\n"));
+	TRACE(("** begin_data:HAVE_PATH\n"));
 	return HAVE_PATH;
     }
-    TRACE(("begin_data:HAVE_GENERIC\n"));
+    TRACE(("** begin_data:HAVE_GENERIC\n"));
     return HAVE_GENERIC;
 }
 
@@ -719,6 +779,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
 }
 
 #define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
+#define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
 
 static void
 do_file(FILE *fp)
@@ -735,13 +796,20 @@ do_file(FILE *fp)
     size_t fixed = 0;
     int ok = HAVE_NOTHING;
     int marker = -1;
-    int unified = 0;
     int freed = 0;
+
+    int unified = 0;
     int old_unify = 0;
     int new_unify = 0;
+    int expect_unify = 0;
+
+    int old_dft = 0;
+    int new_dft = 0;
+
     int context = 1;
+
     char *s;
-#ifdef DEBUG
+#if OPT_TRACE
     int line_no = 0;
 #endif
 
@@ -767,15 +835,16 @@ do_file(FILE *fp)
 	}
 
 	/*
-	 * Trim trailing blanks (e.g., newline)
+	 * Trim trailing newline.
 	 */
 	for (s = buffer + strlen(buffer); s > buffer; s--) {
-	    if (isspace(UC(s[-1])))
+	    if ((UC(s[-1]) == '\n') || (UC(s[-1]) == '\r'))
 		s[-1] = EOS;
 	    else
 		break;
 	}
-	TRACE(("[%05d] %s\n", ++line_no, buffer));
+	++line_no;
+	TRACE(("[%05d] %s\n", line_no, buffer));
 
 	/*
 	 * The lines identifying files in a context diff depend on how it was
@@ -792,7 +861,7 @@ do_file(FILE *fp)
 	 */
 	marker = -1;
 	if (that != &dummy && !strcmp(buffer, "***************")) {
-	    TRACE(("begin context chunk\n"));
+	    TRACE(("** begin context chunk\n"));
 	    context = 2;
 	} else if (context == 2 && match(buffer, "*** ")) {
 	    context = 1;
@@ -836,14 +905,16 @@ do_file(FILE *fp)
 	     * "--" in the first two columns of the diff'd file.
 	     */
 	    unified = 0;
-	    TRACE(("Expected \"+++\" @%d:%s\n", __LINE__, buffer));
+	    TRACE(("?? Expected \"+++\" for unified diff\n"));
 	    if (prev != 0
 		&& prev != that
 		&& InsOf(that) == 0
 		&& DelOf(that) == 0
 		&& strcmp(prev->name, that->name)) {
-		TRACE(("giveup on %ld/%ld %s\n", InsOf(that), DelOf(that), that->name));
-		TRACE(("revert to %ld/%ld %s\n", InsOf(prev), DelOf(prev), prev->name));
+		TRACE(("?? giveup on %ld/%ld %s\n", InsOf(that),
+		       DelOf(that), that->name));
+		TRACE(("?? revert to %ld/%ld %s\n", InsOf(prev),
+		       DelOf(prev), prev->name));
 		(void) delink(that);
 		that = prev;
 		DelOf(that) += 1;
@@ -858,6 +929,7 @@ do_file(FILE *fp)
 		if (new_unify)
 		    --new_unify;
 		break;
+	    case '\0':
 	    case ' ':
 		if (old_unify)
 		    --old_unify;
@@ -865,11 +937,42 @@ do_file(FILE *fp)
 		    --new_unify;
 		break;
 	    default:
+		TRACE(("?? expected more in chunk\n"));
 		old_unify = new_unify = 0;
 		break;
 	    }
+	    if (!(old_unify + new_unify)) {
+		expect_unify = 2;
+	    }
 	} else {
+	    int old_base, new_base;
+
 	    unified = 0;
+
+	    if (line_no == 1
+		&& decode_default(buffer,
+				  &old_base, &old_dft,
+				  &new_base, &new_dft)) {
+		TRACE(("DFT %d,%d -> %d,%d\n",
+		       old_base, old_base + old_dft - 1,
+		       new_base, new_base + new_dft - 1));
+		that = find_data("unknown");
+		ok = begin_data(that);
+	    }
+	}
+
+	/*
+	 * If the previous line ended a chunk of a unified diff, we may begin
+	 * another chunk, or begin another type of diff.  If neither, do not
+	 * continue to accumulate counts for the unified diff which has ended.
+	 */
+	if (expect_unify != 0) {
+	    if (expect_unify-- == 1) {
+		if (unified == 0) {
+		    TRACE(("?? did not get chunk\n"));
+		    that = &dummy;
+		}
+	    }
 	}
 
 	/*
@@ -877,7 +980,7 @@ do_file(FILE *fp)
 	 * below.
 	 */
 	if (marker > 0) {
-	    TRACE(("@%d, marker=%d, override %s\n", __LINE__, marker, buffer));
+	    TRACE(("** have marker=%d, override %s\n", marker, buffer));
 	    (void) strncpy(buffer, "***", 3);
 	}
 
@@ -887,6 +990,7 @@ do_file(FILE *fp)
 	 */
 	switch (*buffer) {
 	case 'O':		/* Only */
+	    CASE_TRACE();
 	    if (match(buffer, "Only in ")) {
 		char *path = buffer + 8;
 		int found = 0;
@@ -914,6 +1018,7 @@ do_file(FILE *fp)
 	     * pathname of the files; some put only the leaf names.
 	     */
 	case 'I':
+	    CASE_TRACE();
 	    if (match(buffer, "Index: ")) {
 		s = strrchr(buffer, BLANK);	/* last token is name */
 		s = skip_blanks(s);
@@ -926,6 +1031,7 @@ do_file(FILE *fp)
 	    break;
 
 	case 'd':		/* diff command trace */
+	    CASE_TRACE();
 	    if (match(buffer, "diff ")
 		&& *(s = skip_options(buffer + 5)) != '\0') {
 		s = strrchr(buffer, BLANK);
@@ -939,7 +1045,7 @@ do_file(FILE *fp)
 	    break;
 
 	case '*':
-	    TRACE(("@%d, ok=%d:%s\n", __LINE__, ok, buffer));
+	    CASE_TRACE();
 	    if (!(ok & HAVE_PATH)) {
 		int ddd, hour, minute, second;
 		int day, month, year;
@@ -988,7 +1094,7 @@ do_file(FILE *fp)
 			prev = 0;
 		    that = find_data(s);
 		    ok = begin_data(that);
-		    TRACE(("after merge:%d:%s\n", ok, s));
+		    TRACE(("** after merge:%d:%s\n", ok, s));
 		}
 	    }
 	    break;
@@ -996,22 +1102,29 @@ do_file(FILE *fp)
 	case '+':
 	    /* FALL-THRU */
 	case '>':
+	    CASE_TRACE();
 	    if (ok)
 		InsOf(that) += 1;
 	    break;
 
 	case '-':
-	    if (!ok)
+	    if (!ok) {
+		CASE_TRACE();
 		break;
-	    if (!unified && !strcmp(buffer, "---"))
+	    }
+	    if (!unified && !strcmp(buffer, "---")) {
+		CASE_TRACE();
 		break;
+	    }
 	    /* fall-thru */
 	case '<':
+	    CASE_TRACE();
 	    if (ok)
 		DelOf(that) += 1;
 	    break;
 
 	case '!':
+	    CASE_TRACE();
 	    if (ok)
 		ModOf(that) += 1;
 	    break;
@@ -1020,6 +1133,7 @@ do_file(FILE *fp)
 	case 'B':		/* Binary */
 	    /* FALL-THRU */
 	case 'b':		/* binary */
+	    CASE_TRACE();
 	    if (match(buffer + 1, "inary files ")) {
 		s = strrchr(buffer, BLANK);
 		if (!strcmp(s, " differ")) {
@@ -1393,7 +1507,7 @@ is_compressed(const char *name)
     }
     if (verb != 0 && *verb != '\0') {
 	result = (char *) xmalloc(strlen(verb) + 10 + len);
-	sprintf(result, "%s -dc %s", verb, name);
+	sprintf(result, "%s -dc \"%s\"", verb, name);
     }
     return result;
 
@@ -1413,6 +1527,9 @@ usage(FILE *fp)
 	"",
 	"Options:",
 	"  -c      prefix each line with comment (#)",
+#if OPT_TRACE
+	"  -d      debug - prints a lot of information",
+#endif
 	"  -e FILE redirect standard error to FILE",
 	"  -f NUM  format (0=concise, 1=normal, 2=filled, 4=values)",
 	"  -h      print this message",
@@ -1424,7 +1541,7 @@ usage(FILE *fp)
 	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
 	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
-	"  -v      makes output more verbose",
+	"  -v      show progress if output is redirected to a file",
 	"  -V      prints the version number",
 	"  -w NUM  specify maximum width of the output (default: 80)",
     };
@@ -1461,12 +1578,17 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt_helper(argc, argv, "ce:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
+    while ((j = getopt_helper(argc, argv, "cde:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'c':
 	    comment_opt = "#";
 	    break;
+#if OPT_TRACE
+	case 'd':
+	    trace_opt = 1;
+	    break;
+#endif
 	case 'e':
 	    if (freopen(optarg, "w", stderr) == 0)
 		failed(optarg);
@@ -1560,7 +1682,7 @@ main(int argc, char *argv[])
 	do_file(stdin);
     }
     summarize();
-#if defined(DEBUG) || defined(NO_LEAKS)
+#if defined(NO_LEAKS)
     while (all_data != 0) {
 	delink(all_data);
     }

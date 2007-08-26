@@ -1,3 +1,23 @@
+26-Aug-2007
+	diffstat 1.44
+
+	add a check for default-diff output, e.g., "diff foo bar|diffstat",
+	which has no "diff" command in the output for diffstat to guess that
+	a diff is beginning.
+
+	add a check after completing a chunk for unified diff to ensure that
+	the next line either begins another chunk for the diff, or starts
+	another diff, e.g., a context diff (report by Adrian Bunk).
+
+	add configure options for leak-checking valgrind, etc.
+
+	use install-sh rather than install.sh
+
+	updated config.guess and config.sub
+
+	updated configure macros CF_GCC_ATTRIBUTES CF_GCC_WARNINGS CF_MSG_LOG
+	CF_PATH_SYNTAX CF_VERBOSE CF_XOPEN_SOURCE
+
 16-Jul-2006
 	diffstat 1.43
 
