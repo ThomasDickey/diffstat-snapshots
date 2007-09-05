@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994-2004,2005 by Thomas E. Dickey                               *
+.\" Copyright 1994-2005,2007 by Thomas E. Dickey                               *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.18 2005/08/15 23:55:59 tom Exp $
+.\" $Id: diffstat.1,v 1.19 2007/09/05 00:31:41 Greg.Norris Exp $
 .TH DIFFSTAT 1
 .SH NAME
 \fBdiffstat\fP \- make histogram from diff-output
@@ -55,6 +55,9 @@ These are shown in the histogram as "+", "-" and "!" characters.
 If no filename is given on the command line,
 \fBdiffstat\fP reads the differences from the standard input.
 .SH OPTIONS
+.TP
+.B -b
+ignore lines matching "Binary files XXX and YYY differ" in the diff
 .TP
 .B -c
 prefix each line of output with "#", making it a comment-line for shell

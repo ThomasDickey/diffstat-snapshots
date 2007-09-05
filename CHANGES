@@ -1,3 +1,8 @@
+04-Sep-2007
+	diffstat 1.45
+
+	add "-b" option (Debian #379380, patch by Greg Norris).
+
 26-Aug-2007
 	diffstat 1.44
 

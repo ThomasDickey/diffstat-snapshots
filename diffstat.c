@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.44 2007/08/26 18:59:23 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.45 2007/09/05 00:27:21 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.44 2007/08/26 18:59:23 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		04 Sep 2007, add "-b" option to suppress binary-files (patch
+ *			     by Greg Norris).
  *		26 Aug 2007, add "-d" option to show debugging traces, rather
  *			     than by defining DEBUG.  Add check after
  *			     unified-diff chunk to avoid adding non-diff text
@@ -275,6 +277,7 @@ static int table_opt = 0;	/* if nonzero, write table rather than plot */
 static int trace_opt = 0;	/* if nonzero, write debugging information */
 static int sort_names = 1;	/* true if we sort filenames */
 static int verbose = 0;		/* -q/-v options */
+static int suppress_binary = 0;	/* -b option */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
 #ifdef HAVE_TSEARCH
@@ -1356,6 +1359,8 @@ show_data(const DATA * p)
 
     if (!changed(p)) {
 	;
+    } else if (p->cmt == Binary && suppress_binary == 1) {
+	;
     } else if (table_opt) {
 	if (names_only) {
 	    printf("%s\n", name);
@@ -1412,6 +1417,8 @@ summarize(void)
 	int len = strlen(p->name);
 
 	if (!changed(p))
+	    continue;
+	if (p->cmt == Binary && suppress_binary)
 	    continue;
 
 	/*
@@ -1578,9 +1585,12 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt_helper(argc, argv, "cde:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
+    while ((j = getopt_helper(argc, argv, "bcde:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
+	case 'b':
+	    suppress_binary = 1;
+	    break;
 	case 'c':
 	    comment_opt = "#";
 	    break;
