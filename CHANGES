@@ -1,3 +1,11 @@
+06-Aug-2008
+	diffstat 1.46
+
+	add "-S", "-D" and "-m" options to provide a way to show the amount
+	of difference relative to the total sizes of the files.
+
+	add "-q" option (Debian #488248, patch by Greg Norris).
+
 04-Sep-2007
 	diffstat 1.45
 

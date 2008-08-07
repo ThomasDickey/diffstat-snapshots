@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994-2005,2007 by Thomas E. Dickey                               *
+.\" Copyright 1994-2007,2008 by Thomas E. Dickey                               *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.19 2007/09/05 00:31:41 Greg.Norris Exp $
+.\" $Id: diffstat.1,v 1.20 2008/08/07 00:32:56 tom Exp $
 .TH DIFFSTAT 1
 .SH NAME
 \fBdiffstat\fP \- make histogram from diff-output
@@ -63,6 +63,16 @@ ignore lines matching "Binary files XXX and YYY differ" in the diff
 prefix each line of output with "#", making it a comment-line for shell
 scripts.
 .TP
+.BI -D " destination"
+specify a directory containing files which can be referred to as
+the result of applying the differences.
+\fBdiffstat\fP will count the lines in the corresponding files
+(after adjusting the names by the \fB-p\fP option)
+to obtain the total number of lines in each file.
+.IP
+The remainder, after subtracting modified and deleted lines,
+is shown as "unchanged lines".
+.TP
 .BI -e " file"
 redirect standard error to \fIfile\fR.
 .TP
@@ -100,6 +110,10 @@ suppress the merging of filenames in the report.
 lists only the filenames.
 No histogram is generated.
 .TP
+.B -m
+merge insert/delete counts from each "chunk" of the patch file to
+approximate a count of the modified lines.
+.TP
 .BI -n " number"
 specify the minimum width used for filenames.
 If you don't specify this, \fBdiffstat\fP uses the length of the longest
@@ -111,6 +125,9 @@ redirect standard output to \fIfile\fR.
 .BI -p " number"
 override the logic that strips common pathnames, simulating the \fBpatch\fP
 "-p" option.
+.TP
+.B -q
+suppress the "0 files changed" message for empty diffs.
 .TP
 .B -r " code"
 provides optional rounding of the data shown in histogram,
@@ -130,6 +147,10 @@ rounds the data and adjusts the histogram to ensure that
 it displays something if there are any differences even if
 those would normally be rounded to zero.
 .RE
+.TP
+.BI -S " source"
+this is like the \fB-D\fP option, but specifies a location where
+the original files (before applying differences) can be found.
 .TP
 .B -t
 overrides the histogram,
@@ -167,6 +188,8 @@ as well as unified diffs.
 .PP
 There's no easy way to determine the degree of overlap between the
 "before" and "after" displays of modified lines.
+\fBdiffstat\fP simply counts the number of inserted and deleted lines
+to approximate modified lines for the \fB-m\fP option.
 .SH SEE ALSO
 .PP
 diff (1).

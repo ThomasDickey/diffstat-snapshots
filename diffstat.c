@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2006,2007 by Thomas E. Dickey                               *
+ * Copyright 1994-2007,2008 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.45 2007/09/05 00:27:21 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.46 2008/08/07 00:19:28 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,9 @@ static const char *Id = "$Id: diffstat.c,v 1.45 2007/09/05 00:27:21 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		06 Aug 2008, add "-m", "-S" and "-D" options.
+ *		05 Aug 2008, add "-q" option to suppress 0-files-changed
+ *			     message (patch by Greg Norris).
  *		04 Sep 2007, add "-b" option to suppress binary-files (patch
  *			     by Greg Norris).
  *		26 Aug 2007, add "-d" option to show debugging traces, rather
@@ -187,6 +190,9 @@ extern char *optarg;
 extern int optind;
 #endif
 
+#include <sys/types.h>
+#include <sys/stat.h>
+
 #if !defined(EXIT_SUCCESS)
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -244,39 +250,56 @@ typedef enum comment {
     Normal, Only, Binary
 } Comment;
 
-#define MARKS 3			/* each of +, - and ! */
+#define MARKS 4			/* each of +, - and ! */
 
-#define InsOf(p) (p)->count[0]	/* "+" count inserted lines */
-#define DelOf(p) (p)->count[1]	/* "-" count deleted lines */
-#define ModOf(p) (p)->count[2]	/* "!" count modified lines */
+typedef enum {
+	cInsert = 0,
+	cDelete,
+	cModify,
+	cEquals
+} Change;
 
-#define TotalOf(p) (InsOf(p) + DelOf(p) + ModOf(p))
+#define InsOf(p) (p)->count[cInsert]	/* "+" count inserted lines */
+#define DelOf(p) (p)->count[cDelete]	/* "-" count deleted lines */
+#define ModOf(p) (p)->count[cModify]	/* "!" count modified lines */
+#define EqlOf(p) (p)->count[cEquals]	/* "=" count unmodified lines */
+
+#define TotalOf(p) (InsOf(p) + DelOf(p) + ModOf(p) + EqlOf(p))
+#define for_each_mark(n) for (n = 0; n < num_marks; ++n)
 
 typedef struct _data {
     struct _data *link;
     char *name;			/* the filename */
     int base;			/* beginning of name if -p option used */
     Comment cmt;
-    long count[3];
+    int pending;
+    long chunks;		/* total number of chunks */
+    long chunk[MARKS];		/* counts for the current chunk */
+    long count[MARKS];		/* counts for the file */
 } DATA;
 
-static const char marks[MARKS + 1] = "+-!";
+static const char marks[MARKS + 1] = "+-!=";
 
 static DATA *all_data;
 static char *comment_opt = "";
+static char *path_opt = 0;
 static int format_opt = FMT_NORMAL;
 static int max_width;		/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
+static int merge_opt = 0;	/* true if we merge ins/del as modified */
 static int name_wide;		/* the amount reserved for filenames */
 static int names_only;		/* true if we list filenames only */
+static int num_marks = 3;	/* 3 or 4, according to "-P" option */
 static int show_progress;	/* if not writing to tty, show progress */
+static int path_dest;		/* true if path_opt is destination (patched) */
 static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
 static int round_opt = 0;	/* if nonzero, round data for histogram */
 static int table_opt = 0;	/* if nonzero, write table rather than plot */
 static int trace_opt = 0;	/* if nonzero, write debugging information */
 static int sort_names = 1;	/* true if we sort filenames */
-static int verbose = 0;		/* -q/-v options */
+static int verbose = 0;		/* -v option */
+static int quiet = 0;		/* -q option */
 static int suppress_binary = 0;	/* -b option */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
@@ -304,6 +327,14 @@ xmalloc(size_t s)
     if ((p = malloc(s)) == NULL)
 	failed("malloc");
     return p;
+}
+
+static int
+is_dir(const char *name)
+{
+    struct stat sb;
+    return (stat(name, &sb) == 0 &&
+	    S_ISDIR(sb.st_mode));
 }
 
 static void
@@ -781,6 +812,89 @@ get_line(char **buffer, size_t *have, FILE *fp)
     return (used != 0);
 }
 
+static char *
+data_filename(const DATA * p)
+{
+    return (p->name + (prefix_opt >= 0 ? p->base : prefix_len));
+}
+
+/*
+ * Count the (new)lines in a file, return -1 if the file is not found.
+ */
+static int
+count_lines(DATA * p)
+{
+    int result = -1;
+    char *filename = 0;
+    char *filetail = data_filename(p);
+    unsigned want = strlen(path_opt) + 2 + strlen(filetail);
+    FILE *fp;
+    int ch;
+
+    if ((filename = malloc(want)) != 0) {
+	sprintf(filename, "%s/%s", path_opt, filetail);
+	TRACE(("count_lines %s\n", filename));
+	if ((fp = fopen(filename, "r")) != 0) {
+	    result = 0;
+	    while ((ch = MY_FGETC(fp)) != EOF) {
+		if (ch == '\n')
+		    ++result;
+	    }
+	    fclose(fp);
+	} else {
+	    fprintf(stderr, "Cannot open %s\n", filename);
+	}
+	free(filename);
+    } else {
+	failed("count_lines");
+    }
+    return result;
+}
+
+static void
+update_chunk(DATA *p, Change change)
+{
+    if (merge_opt) {
+	p->pending += 1;
+	p->chunk[change] += 1;
+    } else {
+	p->count[change] += 1;
+    }
+}
+
+static void
+finish_chunk(DATA *p)
+{
+    int i;
+
+    if (p->pending) {
+	p->pending = 0;
+	p->chunks += 1;
+	if (merge_opt) {
+	    /*
+	     * This is crude, but to make it really precise we would have
+	     * to keep an array of line-numbers to which which in a chunk
+	     * are marked as insert/delete.
+	     */
+	    if (p->chunk[cInsert] && p->chunk[cDelete]) {
+		int change;
+		if (p->chunk[cInsert] > p->chunk[cDelete]) {
+		    change = p->chunk[cDelete];
+		} else {
+		    change = p->chunk[cInsert];
+		}
+		p->chunk[cInsert] -= change;
+		p->chunk[cDelete] -= change;
+		p->chunk[cModify] += change;
+	    }
+	}
+	for_each_mark(i) {
+	    p->count[i] += p->chunk[i];
+	    p->chunk[i] = 0;
+	}
+    }
+}
+
 #define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
 #define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
 
@@ -864,6 +978,7 @@ do_file(FILE *fp)
 	 */
 	marker = -1;
 	if (that != &dummy && !strcmp(buffer, "***************")) {
+	    finish_chunk(that);
 	    TRACE(("** begin context chunk\n"));
 	    context = 2;
 	} else if (context == 2 && match(buffer, "*** ")) {
@@ -874,11 +989,13 @@ do_file(FILE *fp)
 	} else if (match(buffer, "*** ")) {
 	    marker = 0;
 	} else if ((old_unify + new_unify) == 0 && match(buffer, "--- ")) {
+	    finish_chunk(that);
 	    marker = unified = 1;
 	} else if ((old_unify + new_unify) == 0 && match(buffer, "+++ ")) {
 	    marker = unified = 2;
 	} else if (unified == 2
 		   || ((old_unify + new_unify) == 0 && (*buffer == '@'))) {
+	    finish_chunk(that);
 	    unified = 0;
 	    if (*buffer == '@') {
 		int old_base, new_base, old_size, new_size;
@@ -920,7 +1037,7 @@ do_file(FILE *fp)
 		       DelOf(prev), prev->name));
 		(void) delink(that);
 		that = prev;
-		DelOf(that) += 1;
+		update_chunk(that, cDelete);
 	    }
 	} else if (old_unify + new_unify) {
 	    switch (*buffer) {
@@ -959,6 +1076,7 @@ do_file(FILE *fp)
 		TRACE(("DFT %d,%d -> %d,%d\n",
 		       old_base, old_base + old_dft - 1,
 		       new_base, new_base + new_dft - 1));
+		finish_chunk(that);
 		that = find_data("unknown");
 		ok = begin_data(that);
 	    }
@@ -973,6 +1091,7 @@ do_file(FILE *fp)
 	    if (expect_unify-- == 1) {
 		if (unified == 0) {
 		    TRACE(("?? did not get chunk\n"));
+		    finish_chunk(that);
 		    that = &dummy;
 		}
 	    }
@@ -1008,6 +1127,7 @@ do_file(FILE *fp)
 		}
 		if (found) {
 		    blip('.');
+		    finish_chunk(that);
 		    that = find_data(path);
 		    that->cmt = Only;
 		    ok = HAVE_NOTHING;
@@ -1027,6 +1147,7 @@ do_file(FILE *fp)
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
+		finish_chunk(that);
 		s = do_merging(that, s, &freed);
 		that = find_data(s);
 		ok = begin_data(that);
@@ -1041,6 +1162,7 @@ do_file(FILE *fp)
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
+		finish_chunk(that);
 		s = do_merging(that, s, &freed);
 		that = find_data(s);
 		ok = begin_data(that);
@@ -1092,6 +1214,7 @@ do_file(FILE *fp)
 			&& !edit_range(b_fname))
 		    ) {
 		    prev = that;
+		    finish_chunk(that);
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
@@ -1106,8 +1229,9 @@ do_file(FILE *fp)
 	    /* FALL-THRU */
 	case '>':
 	    CASE_TRACE();
-	    if (ok)
-		InsOf(that) += 1;
+	    if (ok) {
+		update_chunk(that, cInsert);
+	    }
 	    break;
 
 	case '-':
@@ -1122,14 +1246,16 @@ do_file(FILE *fp)
 	    /* fall-thru */
 	case '<':
 	    CASE_TRACE();
-	    if (ok)
-		DelOf(that) += 1;
+	    if (ok) {
+		update_chunk(that, cDelete);
+	    }
 	    break;
 
 	case '!':
 	    CASE_TRACE();
-	    if (ok)
-		ModOf(that) += 1;
+	    if (ok) {
+		update_chunk(that, cModify);
+	    }
 	    break;
 
 	    /* Expecting "Binary files XXX and YYY differ" */
@@ -1143,6 +1269,7 @@ do_file(FILE *fp)
 		    *s = EOS;
 		    s = strrchr(buffer, BLANK);
 		    blip('.');
+		    finish_chunk(that);
 		    that = find_data(skip_blanks(s));
 		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
@@ -1153,6 +1280,8 @@ do_file(FILE *fp)
     }
     blip('\n');
 
+    finish_chunk(that);
+    finish_chunk(&dummy);
     if (buffer != 0) {
 	free(buffer);
 	free(b_fname);
@@ -1207,7 +1336,7 @@ plot_round1(const long num[MARKS])
     long half = (plot_scale / 2);
     int i, j;
 
-    for (i = 0; i < MARKS; ++i) {
+    for_each_mark(i) {
 	long product = (plot_width * num[i]);
 	scaled[i] = (product / plot_scale);
 	remain[i] = (product % plot_scale);
@@ -1215,7 +1344,8 @@ plot_round1(const long num[MARKS])
 	have += product - remain[i];
     }
     while (want > have) {
-	for (i = 0, j = -1; i < MARKS; ++i) {
+	j = -1;
+	for_each_mark(i) {
 	    if (remain[i] != 0
 		&& (remain[i] > (j >= 0 ? remain[j] : half))) {
 		j = i;
@@ -1229,7 +1359,7 @@ plot_round1(const long num[MARKS])
 	    break;
 	}
     }
-    for (i = 0; i < MARKS; ++i) {
+    for_each_mark(i) {
 	plot_bar(scaled[i], marks[i]);
 	result += scaled[i];
     }
@@ -1247,10 +1377,10 @@ plot_round2(const long num[MARKS])
     long result = 0;
     long scaled[MARKS];
     long remain[MARKS];
-    long total;
+    long total = 0;
     int i;
 
-    for (total = 0, i = 0; i < MARKS; i++)
+    for (i = 0; i < MARKS; i++)
 	total += num[i];
 
     if (total == 0)
@@ -1261,7 +1391,7 @@ plot_round2(const long num[MARKS])
     if (total == 0)
 	total++;
 
-    for (i = 0; i < MARKS; i++) {
+    for_each_mark(i) {
 	scaled[i] = num[i] * plot_width / plot_scale;
 	remain[i] = num[i] * plot_width - scaled[i] * plot_scale;
 	total -= scaled[i];
@@ -1275,7 +1405,7 @@ plot_round2(const long num[MARKS])
 	/* search for the largest remainder */
 	largest = largest_count = 0;
 	max_remain = 0;
-	for (i = 0; i < MARKS; i++) {
+	for_each_mark(i) {
 	    if (remain[i] > max_remain) {
 		largest = 1 << i;
 		largest_count = 1;
@@ -1292,7 +1422,7 @@ plot_round2(const long num[MARKS])
 	    break;
 
 	/* allocate the extra characters */
-	for (i = 0; i < MARKS; i++) {
+	for_each_mark(i) {
 	    if (largest & (1 << i)) {
 		scaled[i]++;
 		total--;
@@ -1301,8 +1431,9 @@ plot_round2(const long num[MARKS])
 	}
     }
 
-    for (i = 0; i < MARKS; i++)
+    for_each_mark(i) {
 	result += plot_bar(scaled[i], marks[i]);
+    }
 
     return result;
 }
@@ -1320,17 +1451,20 @@ plot_numbers(const DATA * p)
 	printf("%5ld ", InsOf(p));
 	printf("%5ld ", DelOf(p));
 	printf("%5ld ", ModOf(p));
+	if (path_opt)
+	    printf("%5ld ", EqlOf(p));
     }
 
     if (format_opt == FMT_CONCISE) {
-	for (i = 0; i < MARKS; i++) {
+	for_each_mark(i) {
 	    printf("\t%ld %c", p->count[i], marks[i]);
 	}
     } else {
 	switch (round_opt) {
 	default:
-	    for (i = 0; i < MARKS; ++i)
+	    for_each_mark(i) {
 		used += plot_num(p->count[i], marks[i], &temp);
+	    }
 	    break;
 	case 1:
 	    used = plot_round1(p->count);
@@ -1350,12 +1484,14 @@ plot_numbers(const DATA * p)
     }
 }
 
-#define changed(p) (!merge_names || (p)->cmt != Normal || (InsOf(p) + DelOf(p) + ModOf(p)) != 0)
+#define changed(p) (!merge_names \
+		    || (p)->cmt != Normal \
+		    || (TotalOf(p)) != 0)
 
 static void
 show_data(const DATA * p)
 {
-    char *name = p->name + (prefix_opt >= 0 ? p->base : prefix_len);
+    char *name = data_filename(p);
 
     if (!changed(p)) {
 	;
@@ -1365,11 +1501,13 @@ show_data(const DATA * p)
 	if (names_only) {
 	    printf("%s\n", name);
 	} else {
-	    printf("%ld,%ld,%ld,%s\n",
+	    printf("%ld,%ld,%ld,",
 		   InsOf(p),
 		   DelOf(p),
-		   ModOf(p),
-		   name);
+		   ModOf(p));
+	    if (path_opt)
+		printf("%ld,", EqlOf(p));
+	    printf("%s\n", name);
 	}
     } else if (names_only) {
 	printf("%s\n", name);
@@ -1405,23 +1543,34 @@ show_tsearch(const void *nodep, const VISIT which, const int depth)
 }
 #endif
 
+static int
+ignore_data(DATA * p)
+{
+    return ((!changed(p))
+	    || (p->cmt == Binary && suppress_binary));
+}
+
 static void
 summarize(void)
 {
     DATA *p;
-    long total_ins = 0, total_del = 0, total_mod = 0, temp;
+    long total_ins = 0;
+    long total_del = 0;
+    long total_mod = 0;
+    long total_eql = 0;
+    long temp;
     int num_files = 0, shortest_name = -1, longest_name = -1;
 
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
 	int len = strlen(p->name);
 
-	if (!changed(p))
-	    continue;
-	if (p->cmt == Binary && suppress_binary)
+	if (ignore_data(p))
 	    continue;
 
 	/*
+	 * If "-pX" option is given, prefix_opt is positive.
+	 *
 	 * "-p0" gives the whole pathname unmodified.  "-p1" strips
 	 * through the first path-separator, etc.
 	 */
@@ -1430,6 +1579,10 @@ summarize(void)
 	    if (name_wide < (len - p->base))
 		name_wide = (len - p->base);
 	} else {
+	    /*
+	     * If "-pX" option is not given, strip off any prefix which is
+	     * shared by all of the names.
+	     */
 	    if (len < prefix_len || prefix_len < 0)
 		prefix_len = len;
 	    while (prefix_len > 0) {
@@ -1446,14 +1599,41 @@ summarize(void)
 	    if (len < shortest_name || shortest_name < 0)
 		shortest_name = len;
 	}
+    }
 
-	num_files++;
-	total_ins += InsOf(p);
-	total_del += DelOf(p);
-	total_mod += ModOf(p);
-	temp = TotalOf(p);
-	if (temp > plot_scale)
-	    plot_scale = temp;
+    /*
+     * Use a separate loop after computing prefix_len so we can apply the "-S"
+     * or "-D" options to find files that we can use as reference for the
+     * unchanged-count.
+     */
+    for (p = all_data; p; p = p->link) {
+	if (!ignore_data(p)) {
+	    EqlOf(p) = 0;
+	    if (path_opt != 0) {
+		int count = count_lines(p);
+
+		if (count >= 0) {
+		    EqlOf(p) = count - ModOf(p);
+		    if (path_dest) {
+			EqlOf(p) -= InsOf(p);
+			InsOf(p) = 0;
+		    } else {
+			EqlOf(p) -= DelOf(p);
+			DelOf(p) = 0;
+		    }
+		    if (EqlOf(p) < 0)
+			EqlOf(p) = 0;
+		}
+	    }
+	    num_files++;
+	    total_ins += InsOf(p);
+	    total_del += DelOf(p);
+	    total_mod += ModOf(p);
+	    total_eql += EqlOf(p);
+	    temp = TotalOf(p);
+	    if (temp > plot_scale)
+		plot_scale = temp;
+	}
     }
 
     if (prefix_opt < 0) {
@@ -1471,9 +1651,14 @@ summarize(void)
     if (plot_scale < plot_width)
 	plot_scale = plot_width;	/* 1:1 */
 
-    if (table_opt)
-	printf("%sFILENAME\n",
-	       (names_only ? "" : "INSERTED,DELETED,MODIFIED,"));
+    if (table_opt) {
+	if (!names_only) {
+	    printf("INSERTED,DELETED,MODIFIED,");
+	    if (path_opt)
+		printf("UNCHANGED,");
+	}
+	printf("FILENAME\n");
+    }
 
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
@@ -1486,14 +1671,18 @@ summarize(void)
 
     if (!table_opt && !names_only) {
 #define PLURAL(n) n, n != 1 ? "s" : ""
-	printf("%s %d file%s changed", comment_opt, PLURAL(num_files));
-	if (total_ins)
-	    printf(", %ld insertion%s(+)", PLURAL(total_ins));
-	if (total_del)
-	    printf(", %ld deletion%s(-)", PLURAL(total_del));
-	if (total_mod)
-	    printf(", %ld modification%s(!)", PLURAL(total_mod));
-	(void) putchar('\n');
+	if (num_files > 0 || !quiet) {
+	    printf("%s %d file%s changed", comment_opt, PLURAL(num_files));
+	    if (total_ins)
+		printf(", %ld insertion%s(+)", PLURAL(total_ins));
+	    if (total_del)
+		printf(", %ld deletion%s(-)", PLURAL(total_del));
+	    if (total_mod)
+		printf(", %ld modification%s(!)", PLURAL(total_mod));
+	    if (total_eql && path_opt != 0)
+		printf(", %ld unchanged line%s(=)", PLURAL(total_eql));
+	    (void) putchar('\n');
+	}
     }
 }
 
@@ -1522,6 +1711,21 @@ is_compressed(const char *name)
 #endif
 
 static void
+set_path_opt(char *value, int destination)
+{
+    path_opt = value;
+    path_dest = destination;
+    if (*path_opt != 0) {
+	if (is_dir(path_opt)) {
+	    num_marks = 4;
+	} else {
+	    fprintf(stderr, "Not a directory:%s\n", path_opt);
+	    exit(EXIT_FAILURE);
+	}
+    }
+}
+
+static void
 usage(FILE *fp)
 {
     static const char *msg[] =
@@ -1537,15 +1741,19 @@ usage(FILE *fp)
 #if OPT_TRACE
 	"  -d      debug - prints a lot of information",
 #endif
+	"  -D PATH specify location of patched files, use for unchanged-count",
 	"  -e FILE redirect standard error to FILE",
 	"  -f NUM  format (0=concise, 1=normal, 2=filled, 4=values)",
 	"  -h      print this message",
 	"  -k      do not merge filenames",
 	"  -l      list filenames only",
+	"  -m      merge insert/delete data in chunks as modified-lines"
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
+	"  -q      suppress the \"0 files changed\" message for empty diffs",
 	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
+	"  -S PATH specify location of original files, use for unchanged-count",
 	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
 	"  -v      show progress if output is redirected to a file",
@@ -1585,8 +1793,8 @@ main(int argc, char *argv[])
 
     max_width = 80;
 
-    while ((j = getopt_helper(argc, argv, "bcde:f:hkln:o:p:r:tuvVw:", 'h', 'V'))
-	   != -1) {
+    while ((j = getopt_helper(argc, argv,
+			      "bcdD:e:f:hklmn:o:p:qr:S:tuvVw:", 'h', 'V')) != -1) {
 	switch (j) {
 	case 'b':
 	    suppress_binary = 1;
@@ -1615,6 +1823,9 @@ main(int argc, char *argv[])
 	case 'l':
 	    names_only = 1;
 	    break;
+	case 'm':
+	    merge_opt = 1;
+	    break;
 	case 'n':
 	    name_wide = atoi(optarg);
 	    break;
@@ -1624,6 +1835,12 @@ main(int argc, char *argv[])
 	    break;
 	case 'p':
 	    prefix_opt = atoi(optarg);
+	    break;
+	case 'D':
+	    set_path_opt(optarg, 1);
+	    break;
+	case 'S':
+	    set_path_opt(optarg, 0);
 	    break;
 	case 'r':
 	    round_opt = atoi(optarg);
@@ -1647,11 +1864,22 @@ main(int argc, char *argv[])
 	case 'w':
 	    max_width = atoi(optarg);
 	    break;
+	case 'q':
+	    quiet = 1;
+	    break;
 	default:
 	    usage(stderr);
 	    return (EXIT_FAILURE);
 	}
     }
+
+    /*
+     * The numbers from -S/-D options will only be useful if the merge option
+     * is added.
+     */
+    if (path_opt)
+	merge_opt = 1;
+
     show_progress = verbose && (!isatty(fileno(stdout))
 				&& isatty(fileno(stderr)));
 
