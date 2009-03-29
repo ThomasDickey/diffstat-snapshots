@@ -1,3 +1,12 @@
+29-Mar-2009
+	diffstat 1.47
+
+	modify to work with patch ".rej" files, which do not have a header to
+	tell which file is affected.
+
+	fix typo in usage message (reports by Moritz Barsnick, John McNamara,
+	Richard Quadling).
+
 06-Aug-2008
 	diffstat 1.46
 

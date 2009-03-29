@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2007,2008 by Thomas E. Dickey                               *
+ * Copyright 1994-2008,2009 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.46 2008/08/07 00:19:28 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.47 2009/03/29 18:04:40 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.46 2008/08/07 00:19:28 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		29 Mar 2009, modify to work with patch ".rej" files, which have
+ *			     no filename header (use the name of the ".rej"
+ *			     file if it is available).
+ *		29 Sep 2008, fix typo in usage message.
  *		06 Aug 2008, add "-m", "-S" and "-D" options.
  *		05 Aug 2008, add "-q" option to suppress 0-files-changed
  *			     message (patch by Greg Norris).
@@ -253,10 +257,10 @@ typedef enum comment {
 #define MARKS 4			/* each of +, - and ! */
 
 typedef enum {
-	cInsert = 0,
-	cDelete,
-	cModify,
-	cEquals
+    cInsert = 0,
+    cDelete,
+    cModify,
+    cEquals
 } Change;
 
 #define InsOf(p) (p)->count[cInsert]	/* "+" count inserted lines */
@@ -852,7 +856,7 @@ count_lines(DATA * p)
 }
 
 static void
-update_chunk(DATA *p, Change change)
+update_chunk(DATA * p, Change change)
 {
     if (merge_opt) {
 	p->pending += 1;
@@ -863,7 +867,7 @@ update_chunk(DATA *p, Change change)
 }
 
 static void
-finish_chunk(DATA *p)
+finish_chunk(DATA * p)
 {
     int i;
 
@@ -899,8 +903,10 @@ finish_chunk(DATA *p)
 #define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
 
 static void
-do_file(FILE *fp)
+do_file(FILE *fp, char *default_name)
 {
+    static const char *only_stars = "***************";
+
     DATA dummy;
     DATA *that = &dummy;
     DATA *prev = 0;
@@ -964,6 +970,16 @@ do_file(FILE *fp)
 	TRACE(("[%05d] %s\n", line_no, buffer));
 
 	/*
+	 * "patch -U" can create ".rej" files lacking a filename header,
+	 * in unified format.  Check for those.
+	 */
+	if (line_no == 1 && !strncmp(buffer, "@@", 2)) {
+	    unified = 2;
+	    that = find_data(default_name);
+	    ok = begin_data(that);
+	}
+
+	/*
 	 * The lines identifying files in a context diff depend on how it was
 	 * invoked.  But after the header, each chunk begins with a line
 	 * containing 15 *'s.  Each chunk may contain a line-range with '***'
@@ -977,10 +993,15 @@ do_file(FILE *fp)
 	 * lines to ensure we do not confuse the marker lines.
 	 */
 	marker = -1;
-	if (that != &dummy && !strcmp(buffer, "***************")) {
+	if (that != &dummy && !strcmp(buffer, only_stars)) {
 	    finish_chunk(that);
 	    TRACE(("** begin context chunk\n"));
 	    context = 2;
+	} else if (line_no == 1 && !strcmp(buffer, only_stars)) {
+	    TRACE(("** begin context chunk\n"));
+	    context = 2;
+	    that = find_data(default_name);
+	    ok = begin_data(that);
 	} else if (context == 2 && match(buffer, "*** ")) {
 	    context = 1;
 	} else if (context == 1 && match(buffer, "--- ")) {
@@ -1659,7 +1680,6 @@ summarize(void)
 	}
 	printf("FILENAME\n");
     }
-
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
 	twalk(sorted_data, show_tsearch);
@@ -1747,7 +1767,7 @@ usage(FILE *fp)
 	"  -h      print this message",
 	"  -k      do not merge filenames",
 	"  -l      list filenames only",
-	"  -m      merge insert/delete data in chunks as modified-lines"
+	"  -m      merge insert/delete data in chunks as modified-lines",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
@@ -1794,7 +1814,8 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcdD:e:f:hklmn:o:p:qr:S:tuvVw:", 'h', 'V')) != -1) {
+			      "bcdD:e:f:hklmn:o:p:qr:S:tuvVw:", 'h', 'V'))
+	   != -1) {
 	switch (j) {
 	case 'b':
 	    suppress_binary = 1;
@@ -1899,7 +1920,7 @@ main(int argc, char *argv[])
 			(void) fprintf(stderr, "%s\n", name);
 			(void) fflush(stderr);
 		    }
-		    do_file(fp);
+		    do_file(fp, name);
 		    (void) pclose(fp);
 		}
 		free(command);
@@ -1910,14 +1931,14 @@ main(int argc, char *argv[])
 		    (void) fprintf(stderr, "%s\n", name);
 		    (void) fflush(stderr);
 		}
-		do_file(fp);
+		do_file(fp, name);
 		(void) fclose(fp);
 	    } else {
 		failed(name);
 	    }
 	}
     } else {
-	do_file(stdin);
+	do_file(stdin, "unknown");
     }
     summarize();
 #if defined(NO_LEAKS)
