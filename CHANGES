@@ -1,3 +1,30 @@
+11-Aug-2009
+	diffstat 1.48
+
+	add decompression tests for lzma and pack file types.
+
+	check for zcat and uncompress in preference to "compress -dc".
+
+	modify to check the first few bytes of standard input, and use a
+	corresponding decompression utility if the stream appears to be
+	compressed.  This requires making a temporary copy of the data
+	(Debian #491575).
+
+	add -N option, to truncate filenames.
+
+	use getc_unlocked() rather than fgetc_unlocked()
+
+	modify to recognize Perforce-style diffs (patch by Ed Schouten).
+
+	update configure macros to improve compiler warning checks, use
+	$PATH_SEPARATOR rather than $PATH_SEP (for consistency with some
+	autoconf versions),
+
+	fix typo in configure --with-install-prefix option (report by
+	Dagobert Michelsen).
+
+	update config.guess, config.sub
+
 29-Mar-2009
 	diffstat 1.47
 

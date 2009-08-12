@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.47 2009/03/29 18:04:40 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.48 2009/08/11 22:24:09 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,13 @@ static const char *Id = "$Id: diffstat.c,v 1.47 2009/03/29 18:04:40 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		11 Aug 2009, Add logic to check standard input, decompress if
+ *			     possible.  Add -N option, to truncate long names.
+ *			     Add pack/pcat as a compression type.
+ *			     Add lzma/lzcat as a compression type.
+ *			     Allow overriding program paths with environment.
+ *		10 Aug 2009, modify to work with Perforce-style diffs (patch
+ *			     by Ed Schouten).
  *		29 Mar 2009, modify to work with patch ".rej" files, which have
  *			     no filename header (use the name of the ".rej"
  *			     file if it is available).
@@ -180,10 +187,10 @@ extern int isatty(int);
 #undef HAVE_TSEARCH
 #endif
 
-#ifdef HAVE_FGETC_UNLOCKED
-#define MY_FGETC fgetc_unlocked
+#ifdef HAVE_GETC_UNLOCKED
+#define MY_GETC getc_unlocked
 #else
-#define MY_FGETC fgetc
+#define MY_GETC getc
 #endif
 
 #ifdef HAVE_GETOPT_H
@@ -202,16 +209,32 @@ extern int optind;
 #define EXIT_FAILURE 1
 #endif
 
+#ifndef BZCAT_PATH
+#define BZCAT_PATH ""
+#endif
+
+#ifndef BZIP2_PATH
+#define BZIP2_PATH ""
+#endif
+
 #ifndef COMPRESS_PATH
 #define COMPRESS_PATH ""
 #endif
 
 #ifndef GZIP_PATH
-#define GZIP_PATH     ""
+#define GZIP_PATH ""
 #endif
 
-#ifndef BZIP_PATH
-#define BZIP_PATH     ""
+#ifndef LZCAT_PATH
+#define LZCAT_PATH ""
+#endif
+
+#ifndef PCAT_PATH
+#define PCAT_PATH ""
+#endif
+
+#ifndef UNCOMPRESS_PATH
+#define UNCOMPRESS_PATH ""
 #endif
 
 /******************************************************************************/
@@ -282,6 +305,16 @@ typedef struct _data {
     long count[MARKS];		/* counts for the file */
 } DATA;
 
+typedef enum {
+    dcNone = 0,
+    dcBzip,
+    dcCompress,
+    dcGzip,
+    dcLzma,
+    dcPack,
+    dcEmpty
+} Decompress;
+
 static const char marks[MARKS + 1] = "+-!=";
 
 static DATA *all_data;
@@ -291,7 +324,8 @@ static int format_opt = FMT_NORMAL;
 static int max_width;		/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
 static int merge_opt = 0;	/* true if we merge ins/del as modified */
-static int name_wide;		/* the amount reserved for filenames */
+static int min_name_wide;	/* minimum amount reserved for filenames */
+static int max_name_wide;	/* maximum amount reserved for filenames */
 static int names_only;		/* true if we list filenames only */
 static int num_marks = 3;	/* 3 or 4, according to "-P" option */
 static int show_progress;	/* if not writing to tty, show progress */
@@ -804,7 +838,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
     int ch;
     size_t used = 0;
 
-    while ((ch = MY_FGETC(fp)) != EOF) {
+    while ((ch = MY_GETC(fp)) != EOF) {
 	if (used + 2 > *have) {
 	    adjust_buffer(buffer, *have *= 2);
 	}
@@ -840,7 +874,7 @@ count_lines(DATA * p)
 	TRACE(("count_lines %s\n", filename));
 	if ((fp = fopen(filename, "r")) != 0) {
 	    result = 0;
-	    while ((ch = MY_FGETC(fp)) != EOF) {
+	    while ((ch = MY_GETC(fp)) != EOF) {
 		if (ch == '\n')
 		    ++result;
 	    }
@@ -918,7 +952,7 @@ do_file(FILE *fp, char *default_name)
     size_t length = 0;
     size_t fixed = 0;
     int ok = HAVE_NOTHING;
-    int marker = -1;
+    int marker;
     int freed = 0;
 
     int unified = 0;
@@ -992,7 +1026,7 @@ do_file(FILE *fp, char *default_name)
 	 * space in column 2.  Because of the missing space, we have to count
 	 * lines to ensure we do not confuse the marker lines.
 	 */
-	marker = -1;
+	marker = 0;
 	if (that != &dummy && !strcmp(buffer, only_stars)) {
 	    finish_chunk(that);
 	    TRACE(("** begin context chunk\n"));
@@ -1008,7 +1042,9 @@ do_file(FILE *fp, char *default_name)
 	    marker = 1;
 	    context = 0;
 	} else if (match(buffer, "*** ")) {
-	    marker = 0;
+	} else if ((old_unify + new_unify) == 0 && match(buffer, "==== ")) {
+	    finish_chunk(that);
+	    unified = 2;
 	} else if ((old_unify + new_unify) == 0 && match(buffer, "--- ")) {
 	    finish_chunk(that);
 	    marker = unified = 1;
@@ -1234,6 +1270,38 @@ do_file(FILE *fp, char *default_name)
 			&& !contain_any(b_fname, "*")
 			&& !edit_range(b_fname))
 		    ) {
+		    prev = that;
+		    finish_chunk(that);
+		    s = do_merging(that, b_fname, &freed);
+		    if (freed)
+			prev = 0;
+		    that = find_data(s);
+		    ok = begin_data(that);
+		    TRACE(("** after merge:%d:%s\n", ok, s));
+		}
+	    }
+	    break;
+
+	case '=':
+	    CASE_TRACE();
+	    if (!(ok & HAVE_PATH)) {
+		int rev;
+
+		if (((sscanf(buffer,
+			     "==== %[^\t #]#%d - %[^\t ]",
+			     b_fname,
+			     &rev,
+			     b_temp1) == 3)
+		     || ((sscanf(buffer,
+				 "==== %[^\t #]#%d (%[^)]) - %[^\t ]",
+				 b_fname,
+				 &rev,
+				 b_temp1,
+				 b_temp2) == 4)))
+		    && !version_num(b_fname)
+		    && !contain_any(b_fname, "*")
+		    && !edit_range(b_fname)) {
+		    TRACE(("** found p4-diff\n"));
 		    prev = that;
 		    finish_chunk(that);
 		    s = do_merging(that, b_fname, &freed);
@@ -1513,6 +1581,7 @@ static void
 show_data(const DATA * p)
 {
     char *name = data_filename(p);
+    int width;
 
     if (!changed(p)) {
 	;
@@ -1533,10 +1602,18 @@ show_data(const DATA * p)
     } else if (names_only) {
 	printf("%s\n", name);
     } else {
-	printf("%s %-*.*s|",
-	       comment_opt,
-	       name_wide, name_wide,
-	       name);
+	printf("%s ", comment_opt);
+	if (max_name_wide > 0
+	    && max_name_wide < min_name_wide
+	    && max_name_wide < ((width = (int) strlen(name)))) {
+	    printf("%.*s", max_name_wide, name + (width - max_name_wide));
+	} else {
+	    width = ((max_name_wide > 0 && max_name_wide < min_name_wide)
+		     ? max_name_wide
+		     : min_name_wide);
+	    printf("%-*.*s", width, width, name);
+	}
+	putchar('|');
 	switch (p->cmt) {
 	default:
 	case Normal:
@@ -1597,8 +1674,8 @@ summarize(void)
 	 */
 	if (prefix_opt >= 0) {
 	    /* p->base has been computed at node creation */
-	    if (name_wide < (len - p->base))
-		name_wide = (len - p->base);
+	    if (min_name_wide < (len - p->base))
+		min_name_wide = (len - p->base);
 	} else {
 	    /*
 	     * If "-pX" option is not given, strip off any prefix which is
@@ -1660,12 +1737,12 @@ summarize(void)
     if (prefix_opt < 0) {
 	if (prefix_len < 0)
 	    prefix_len = 0;
-	if ((longest_name - prefix_len) > name_wide)
-	    name_wide = (longest_name - prefix_len);
+	if ((longest_name - prefix_len) > min_name_wide)
+	    min_name_wide = (longest_name - prefix_len);
     }
 
-    name_wide++;		/* make sure it's nonzero */
-    plot_width = (max_width - name_wide - 8);
+    min_name_wide++;		/* make sure it's nonzero */
+    plot_width = (max_width - min_name_wide - 8);
     if (plot_width < 10)
 	plot_width = 10;
 
@@ -1707,26 +1784,137 @@ summarize(void)
 }
 
 #ifdef HAVE_POPEN
-static char *
-is_compressed(const char *name)
+static const char *
+get_program(char *name, const char *dft)
 {
-    char *verb = 0;
+    const char *result = getenv(name);
+    if (result == 0 || *result == '\0')
+	result = dft;
+    TRACE(("get_program(%s) = %s\n", name, result));
+    return result;
+}
+#define GET_PROGRAM(name) get_program("DIFFSTAT_" #name, name)
+
+static char *
+decompressor(Decompress which, const char *name)
+{
+    const char *verb = 0;
+    const char *opts = "";
     char *result = 0;
     size_t len = strlen(name);
 
-    if (len > 2 && !strcmp(name + len - 2, ".Z")) {
-	verb = COMPRESS_PATH;
-    } else if (len > 3 && !strcmp(name + len - 3, ".gz")) {
-	verb = GZIP_PATH;
-    } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
-	verb = BZIP_PATH;
+    switch (which) {
+    case dcBzip:
+	verb = GET_PROGRAM(BZCAT_PATH);
+	if (*verb == '\0') {
+	    verb = GET_PROGRAM(BZIP2_PATH);
+	    opts = "-dc";
+	}
+	break;
+    case dcCompress:
+	verb = GET_PROGRAM(ZCAT_PATH);
+	if (*verb == '\0') {
+	    verb = GET_PROGRAM(UNCOMPRESS_PATH);
+	    opts = "-c";
+	    if (*verb == '\0') {
+		/* not all compress's recognize the options, test this last */
+		verb = GET_PROGRAM(COMPRESS_PATH);
+		opts = "-dc";
+	    }
+	}
+	break;
+    case dcGzip:
+	verb = GET_PROGRAM(GZIP_PATH);
+	opts = "-dc";
+	break;
+    case dcLzma:
+	verb = GET_PROGRAM(LZCAT_PATH);
+	opts = "-S ''";
+	break;
+    case dcPack:
+	verb = GET_PROGRAM(PCAT_PATH);
+	break;
+    case dcEmpty:
+	/* FALLTHRU */
+    case dcNone:
+	break;
     }
     if (verb != 0 && *verb != '\0') {
 	result = (char *) xmalloc(strlen(verb) + 10 + len);
-	sprintf(result, "%s -dc \"%s\"", verb, name);
+	sprintf(result, "%s %s", verb, opts);
+	if (*name != '\0') {
+	    sprintf(result + strlen(result), " \"%s\"", name);
+	}
     }
     return result;
+}
 
+static char *
+is_compressed(const char *name)
+{
+    size_t len = strlen(name);
+    Decompress which;
+
+    if (len > 2 && !strcmp(name + len - 2, ".Z")) {
+	which = dcCompress;
+    } else if (len > 2 && !strcmp(name + len - 2, ".z")) {
+	which = dcPack;
+    } else if (len > 3 && !strcmp(name + len - 3, ".gz")) {
+	which = dcGzip;
+    } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
+	which = dcBzip;
+    } else if (len > 5 && !strcmp(name + len - 5, ".lzma")) {
+	which = dcLzma;
+    } else {
+	which = dcNone;
+    }
+    return decompressor(which, name);
+}
+
+#ifdef HAVE_MKDTEMP
+#define MY_MKDTEMP(path) mkdtemp(path)
+#else
+/*
+ * mktemp is supposedly marked obsolete at the same point that mkdtemp is
+ * introduced.
+ */
+static char *
+my_mkdtemp(char *path)
+{
+    char *result = mktemp(path);
+    if (result != 0) {
+	if (mkdir(result, 0700) < 0) {
+	    result = 0;
+	}
+    }
+    return path;
+}
+#define MY_MKDTEMP(path) my_mkdtemp(path)
+#endif
+
+static char *
+copy_stdin(char *dirpath)
+{
+    char *result = 0;
+    int ch;
+    FILE *fp;
+
+    strcpy(dirpath, "/tmp/diffXXXXXX");
+    if (MY_MKDTEMP(dirpath) != 0) {
+	result = xmalloc(strlen(dirpath) + 10);
+	sprintf(result, "%s/stdin", dirpath);
+
+	if ((fp = fopen(result, "w")) != 0) {
+	    while ((ch = MY_GETC(stdin)) != EOF) {
+		fputc(ch, fp);
+	    }
+	    fclose(fp);
+	} else {
+	    free(result);
+	    result = 0;
+	}
+    }
+    return result;
 }
 #endif
 
@@ -1769,6 +1957,7 @@ usage(FILE *fp)
 	"  -l      list filenames only",
 	"  -m      merge insert/delete data in chunks as modified-lines",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
+	"  -N NUM  specify maximum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -q      suppress the \"0 files changed\" message for empty diffs",
@@ -1814,7 +2003,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcdD:e:f:hklmn:o:p:qr:S:tuvVw:", 'h', 'V'))
+			      "bcdD:e:f:hklmn:N:o:p:qr:S:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -1848,7 +2037,10 @@ main(int argc, char *argv[])
 	    merge_opt = 1;
 	    break;
 	case 'n':
-	    name_wide = atoi(optarg);
+	    min_name_wide = atoi(optarg);
+	    break;
+	case 'N':
+	    max_name_wide = atoi(optarg);
 	    break;
 	case 'o':
 	    if (freopen(optarg, "w", stdout) == 0)
@@ -1938,7 +2130,84 @@ main(int argc, char *argv[])
 	    }
 	}
     } else {
-	do_file(stdin, "unknown");
+#ifdef HAVE_POPEN
+	FILE *fp;
+	Decompress which = dcEmpty;
+	char stdin_dir[256];
+	char *myfile;
+	char sniff[8];
+	int ch;
+	unsigned got = 0;
+	char *command;
+
+	if ((ch = MY_GETC(stdin)) != EOF) {
+	    which = dcNone;
+	    if (ch == 'B') {	/* perhaps bzip2 (poor magic design...) */
+		sniff[got++] = ch;
+		while (got < 5) {
+		    if ((ch = MY_GETC(stdin)) == EOF)
+			break;
+		    sniff[got++] = ch;
+		}
+		if (got == 5
+		    && !strncmp(sniff, "BZh", 3)
+		    && isdigit((unsigned char) sniff[3])
+		    && isdigit((unsigned char) sniff[4])) {
+		    which = dcBzip;
+		}
+	    } else if (ch == ']') {	/* perhaps lzma */
+		sniff[got++] = ch;
+		while (got < 4) {
+		    if ((ch = MY_GETC(stdin)) == EOF)
+			break;
+		    sniff[got++] = ch;
+		}
+		if (got == 4
+		    && !memcmp(sniff, "]\0\0\200", 4)) {
+		    which = dcLzma;
+		}
+	    } else if (ch == '\037') {	/* perhaps compress, etc. */
+		sniff[got++] = ch;
+		if ((ch = MY_GETC(stdin)) != EOF) {
+		    sniff[got++] = ch;
+		    switch (ch) {
+		    case 0213:
+			which = dcGzip;
+			break;
+		    case 0235:
+			which = dcCompress;
+			break;
+		    case 0036:
+			which = dcPack;
+			break;
+		    }
+		}
+	    }
+	}
+	/*
+	 * The C standard only guarantees one ungetc;
+	 * virtually everyone allows more.
+	 */
+	while (got != 0) {
+	    ungetc(sniff[--got], stdin);
+	}
+	if (which != dcNone
+	    && which != dcEmpty
+	    && (myfile = copy_stdin(stdin_dir)) != 0) {
+
+	    /* open pipe to decompress temporary file */
+	    command = decompressor(which, myfile);
+	    if ((fp = popen(command, "r")) != 0) {
+		do_file(fp, "stdin");
+		(void) pclose(fp);
+	    }
+	    free(command);
+
+	    unlink(myfile);
+	    rmdir(stdin_dir);
+	} else if (which != dcEmpty)
+#endif
+	    do_file(stdin, "unknown");
     }
     summarize();
 #if defined(NO_LEAKS)
