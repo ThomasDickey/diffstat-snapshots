@@ -1,13 +1,13 @@
 #
 # makefile for 'diffstat' on WIN32 using Microsoft Visual C++
 #
-# $Id: makefile.wnt,v 1.1 2004/05/03 13:11:24 tom Exp $
+# $Id: makefile.wnt,v 1.2 2009/09/01 00:33:28 tom Exp $
 #
 !include <ntwin32.mak>
 
 P = porting
 
-CFLAGS = $(cvars) $(cdebug) -nologo -G4 -W3 -I. -I$P
+CFLAGS = $(cvars) $(cdebug) -nologo -G4 -W3 -I. -DWIN32 -I$P
 LDFLAGS = -nologo -pdb:none
 
 NAME =	diffstat
@@ -32,3 +32,4 @@ clean:
 	- del $(NAME).exe
 	- del /f/s/q *.obj
 	- del /f/s/q *.bak
+	- del /f/s/q *.pdb
