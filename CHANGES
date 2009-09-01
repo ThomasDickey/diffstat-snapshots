@@ -1,3 +1,17 @@
+31-Aug-2009
+	diffstat 1.49
+
+	improve lzma support, add support for xz (patch by Eric Blake).
+	
+	add special case for no-newline message from some diff's (Ubuntu
+	#269895).
+
+	improve configure check for getopt header.
+
+	add configure special case for HPUX 11 with _XOPEN_SOURCE definition.
+
+	update config.guess, config.sub
+
 11-Aug-2009
 	diffstat 1.48
 

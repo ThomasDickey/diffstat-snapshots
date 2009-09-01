@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.48 2009/08/11 22:24:09 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.49 2009/09/01 00:34:36 Zach.Hirsch Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.48 2009/08/11 22:24:09 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		31 Aug 2009, improve lzma support, add support for xz (patch by
+ *			     Eric Blake).  Add special case for no-newline
+ *			     message from some diff's (Ubuntu #269895).
+ *			     Improve configure check for getopt().
  *		11 Aug 2009, Add logic to check standard input, decompress if
  *			     possible.  Add -N option, to truncate long names.
  *			     Add pack/pcat as a compression type.
@@ -195,8 +199,8 @@ extern int isatty(int);
 
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
-#else
-extern int getopt();
+#elif !defined(HAVE_GETOPT_HEADER)
+extern int getopt(int, char *const*, const char *);
 extern char *optarg;
 extern int optind;
 #endif
@@ -235,6 +239,10 @@ extern int optind;
 
 #ifndef UNCOMPRESS_PATH
 #define UNCOMPRESS_PATH ""
+#endif
+
+#ifndef ZCAT_PATH
+#define ZCAT_PATH ""
 #endif
 
 /******************************************************************************/
@@ -372,7 +380,7 @@ is_dir(const char *name)
 {
     struct stat sb;
     return (stat(name, &sb) == 0 &&
-	    S_ISDIR(sb.st_mode));
+	    (sb.st_mode & S_IFMT) == S_IFDIR);
 }
 
 static void
@@ -726,17 +734,17 @@ do_merging(DATA * data, char *path, int *freed)
 
 	    for (n = 1; n <= len1 && n <= len2; n++) {
 		if (data->name[len1 - n] != path[len2 - n]) {
-		    diff = n;
+		    diff = (int) n;
 		    break;
 		}
 		if (path[len2 - n] == PATHSEP)
-		    matched = n;
+		    matched = (int) n;
 	    }
 
 	    if (prefix_opt < 0
 		&& matched != 0
 		&& diff)
-		path += len2 - matched + 1;
+		path += ((int) len2 - matched + 1);
 
 	    if (!local)
 		*freed = delink(data);
@@ -798,7 +806,7 @@ skip_options(char *params)
 static void
 dequote(char *s)
 {
-    int len = strlen(s);
+    size_t len = strlen(s);
     int n;
 
     if (*s == SQUOTE && len > 2 && s[len - 1] == SQUOTE) {
@@ -1113,6 +1121,11 @@ do_file(FILE *fp, char *default_name)
 		if (new_unify)
 		    --new_unify;
 		break;
+	    case '\\':
+		if (strstr(buffer, "newline") != 0) {
+		    break;
+		}
+		/* FALLTHRU */
 	    default:
 		TRACE(("?? expected more in chunk\n"));
 		old_unify = new_unify = 0;
@@ -1661,7 +1674,7 @@ summarize(void)
 
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
-	int len = strlen(p->name);
+	int len = (int) strlen(p->name);
 
 	if (ignore_data(p))
 	    continue;
@@ -1829,7 +1842,7 @@ decompressor(Decompress which, const char *name)
 	break;
     case dcLzma:
 	verb = GET_PROGRAM(LZCAT_PATH);
-	opts = "-S ''";
+	opts = "-dc";
 	break;
     case dcPack:
 	verb = GET_PROGRAM(PCAT_PATH);
@@ -1864,6 +1877,8 @@ is_compressed(const char *name)
     } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
 	which = dcBzip;
     } else if (len > 5 && !strcmp(name + len - 5, ".lzma")) {
+	which = dcLzma;
+    } else if (len > 3 && !strcmp(name + len - 5, ".xz")) {
 	which = dcLzma;
     } else {
 	which = dcNone;
@@ -2143,11 +2158,11 @@ main(int argc, char *argv[])
 	if ((ch = MY_GETC(stdin)) != EOF) {
 	    which = dcNone;
 	    if (ch == 'B') {	/* perhaps bzip2 (poor magic design...) */
-		sniff[got++] = ch;
+		sniff[got++] = (char) ch;
 		while (got < 5) {
 		    if ((ch = MY_GETC(stdin)) == EOF)
 			break;
-		    sniff[got++] = ch;
+		    sniff[got++] = (char) ch;
 		}
 		if (got == 5
 		    && !strncmp(sniff, "BZh", 3)
@@ -2156,20 +2171,31 @@ main(int argc, char *argv[])
 		    which = dcBzip;
 		}
 	    } else if (ch == ']') {	/* perhaps lzma */
-		sniff[got++] = ch;
+		sniff[got++] = (char) ch;
 		while (got < 4) {
 		    if ((ch = MY_GETC(stdin)) == EOF)
 			break;
-		    sniff[got++] = ch;
+		    sniff[got++] = (char) ch;
 		}
 		if (got == 4
 		    && !memcmp(sniff, "]\0\0\200", 4)) {
 		    which = dcLzma;
 		}
+	    } else if (ch == 0xfd) {	/* perhaps xz */
+		sniff[got++] = (char) ch;
+		while (got < 6) {
+		    if ((ch = MY_GETC(stdin)) == EOF)
+			break;
+		    sniff[got++] = (char) ch;
+		}
+		if (got == 6
+		    && !memcmp(sniff, "\3757zXZ\0", 6)) {
+		    which = dcLzma;
+		}
 	    } else if (ch == '\037') {	/* perhaps compress, etc. */
-		sniff[got++] = ch;
+		sniff[got++] = (char) ch;
 		if ((ch = MY_GETC(stdin)) != EOF) {
-		    sniff[got++] = ch;
+		    sniff[got++] = (char) ch;
 		    switch (ch) {
 		    case 0213:
 			which = dcGzip;
