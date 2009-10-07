@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.49 2009/09/01 00:34:36 Zach.Hirsch Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.49.1.4 2009/10/06 20:22:39 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,11 @@ static const char *Id = "$Id: diffstat.c,v 1.49 2009/09/01 00:34:36 Zach.Hirsch 
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		06 Oct 2009, 
+			     fixes to build/run with MSYS or MinGW.  use
+			     $TMPDIR for path of temporary file used in
+			     decompression.  correct else-condition for
+			     detecting compression type (patch by Zach Hirsch).
  *		31 Aug 2009, improve lzma support, add support for xz (patch by
  *			     Eric Blake).  Add special case for no-newline
  *			     message from some diff's (Ubuntu #269895).
@@ -151,7 +156,7 @@ static const char *Id = "$Id: diffstat.c,v 1.49 2009/09/01 00:34:36 Zach.Hirsch 
 #include <config.h>
 #endif
 
-#ifdef WIN32
+#if defined(WIN32) && !defined(HAVE_CONFIG_H)
 #define HAVE_STDLIB_H
 #define HAVE_STRING_H
 #define HAVE_MALLOC_H
@@ -200,7 +205,7 @@ extern int isatty(int);
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #elif !defined(HAVE_GETOPT_HEADER)
-extern int getopt(int, char *const*, const char *);
+extern int getopt(int, char *const *, const char *);
 extern char *optarg;
 extern int optind;
 #endif
@@ -247,7 +252,13 @@ extern int optind;
 
 /******************************************************************************/
 
-#ifdef WIN32
+#if defined(__MINGW32__) || defined(WIN32)
+#define MKDIR(name,mode) mkdir(name)
+#else
+#define MKDIR(name,mode) mkdir(name,mode)
+#endif
+
+#if defined(WIN32) && !defined(__MINGW32__)
 #define PATHSEP '\\'
 #else
 #define PATHSEP '/'
@@ -1898,7 +1909,7 @@ my_mkdtemp(char *path)
 {
     char *result = mktemp(path);
     if (result != 0) {
-	if (mkdir(result, 0700) < 0) {
+	if (MKDIR(result, 0700) < 0) {
 	    result = 0;
 	}
     }
@@ -1908,16 +1919,22 @@ my_mkdtemp(char *path)
 #endif
 
 static char *
-copy_stdin(char *dirpath)
+copy_stdin(char **dirpath)
 {
+    char *tmp = getenv("TMPDIR");
     char *result = 0;
     int ch;
     FILE *fp;
 
-    strcpy(dirpath, "/tmp/diffXXXXXX");
-    if (MY_MKDTEMP(dirpath) != 0) {
-	result = xmalloc(strlen(dirpath) + 10);
-	sprintf(result, "%s/stdin", dirpath);
+    if (tmp == 0)
+	tmp = "/tmp/";
+    *dirpath = xmalloc(strlen(tmp) + 12);
+
+    strcpy(*dirpath, tmp);
+    strcat(*dirpath, "/diffXXXXXX");
+    if (MY_MKDTEMP(*dirpath) != 0) {
+	result = xmalloc(strlen(*dirpath) + 10);
+	sprintf(result, "%s/stdin", *dirpath);
 
 	if ((fp = fopen(result, "w")) != 0) {
 	    while ((ch = MY_GETC(stdin)) != EOF) {
@@ -2148,7 +2165,7 @@ main(int argc, char *argv[])
 #ifdef HAVE_POPEN
 	FILE *fp;
 	Decompress which = dcEmpty;
-	char stdin_dir[256];
+	char *stdin_dir = 0;
 	char *myfile;
 	char sniff[8];
 	int ch;
@@ -2208,6 +2225,8 @@ main(int argc, char *argv[])
 			break;
 		    }
 		}
+	    } else {
+		sniff[got++] = (char) ch;
 	    }
 	}
 	/*
@@ -2219,7 +2238,7 @@ main(int argc, char *argv[])
 	}
 	if (which != dcNone
 	    && which != dcEmpty
-	    && (myfile = copy_stdin(stdin_dir)) != 0) {
+	    && (myfile = copy_stdin(&stdin_dir)) != 0) {
 
 	    /* open pipe to decompress temporary file */
 	    command = decompressor(which, myfile);
