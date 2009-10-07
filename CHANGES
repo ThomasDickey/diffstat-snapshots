@@ -1,3 +1,15 @@
+07-Oct-2009
+	diffstat 1.50
+
+	build/test fixes for MSYS (MinGW)
+
+	improve configure check for get_unlocked function.
+
+	use $TMPDIR for path of temporary file used in decompression.
+	
+	correct else-condition for detecting compression type (patch by Zach
+	Hirsch).
+
 31-Aug-2009
 	diffstat 1.49
 

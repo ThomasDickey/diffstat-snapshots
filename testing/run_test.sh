@@ -1,5 +1,5 @@
 #!/bin/sh
-# $Id: run_test.sh,v 1.13 2007/09/05 00:27:57 tom Exp $
+# $Id: run_test.sh,v 1.14 2009/10/06 20:47:01 tom Exp $
 # Test-script for DIFFSTAT
 
 # change this for ad hoc testing of compression
@@ -31,14 +31,16 @@ do
 		diffstat -e $TEST.err -o $TEST.out $OPTS $DATA
 		if [ -f $NAME.ref ]
 		then
-			if ( cmp -s $TEST.out $NAME.ref )
+			diff -b $NAME.ref $TEST.out >check.out
+			if test -s check.out
 			then
+				echo "?? fail: $TEST"
+				ls -l check.out
+				cat check.out
+			else
 				echo "** ok: $TEST"
 				rm -f $TEST.out
 				rm -f $TEST.err
-			else
-				echo "?? fail: $TEST"
-				diff -b $NAME.ref $TEST.out
 			fi
 		else
 			echo "** save: $TEST"
