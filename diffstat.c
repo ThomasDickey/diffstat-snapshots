@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.49.1.4 2009/10/06 20:22:39 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.50 2009/10/07 00:20:15 tom Exp $";
 #endif
 
 /*
@@ -28,11 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.49.1.4 2009/10/06 20:22:39 tom Exp 
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
- *		06 Oct 2009, 
-			     fixes to build/run with MSYS or MinGW.  use
-			     $TMPDIR for path of temporary file used in
-			     decompression.  correct else-condition for
-			     detecting compression type (patch by Zach Hirsch).
+ *		06 Oct 2009, fixes to build/run with MSYS or MinGW.  use
+ *			     $TMPDIR for path of temporary file used in
+ *			     decompression.  correct else-condition for
+ *			     detecting compression type (patch by Zach Hirsch).
  *		31 Aug 2009, improve lzma support, add support for xz (patch by
  *			     Eric Blake).  Add special case for no-newline
  *			     message from some diff's (Ubuntu #269895).

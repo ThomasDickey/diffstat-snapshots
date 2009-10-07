@@ -1,4 +1,4 @@
-dnl $Id: aclocal.m4,v 1.17 2009/10/06 23:30:35 tom Exp $
+dnl $Id: aclocal.m4,v 1.18 2009/10/06 23:56:17 tom Exp $
 dnl autoconf macros for 'diffstat'
 dnl
 dnl Copyright 2003-2007,2009 Thomas E. Dickey
@@ -913,7 +913,7 @@ $1=`echo "$2" | \
 		-e 's/-[[UD]]$3\(=[[^ 	]]*\)\?[$]//g'`
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_STDIO_UNLOCKED version: 2 updated: 2009/10/06 19:29:38
+dnl CF_STDIO_UNLOCKED version: 3 updated: 2009/10/06 19:54:39
 dnl -----------------
 dnl The four functions getc_unlocked(), getchar_unlocked(), putc_unlocked(),
 dnl putchar_unlocked() are in POSIX.1-2001.
@@ -938,7 +938,7 @@ if test "$cf_stdio_unlocked" != no ; then
 		void *dummy = $cf_stdio_unlocked(0)],
 			[cf_cv_stdio_unlocked=yes],
 			[cf_cv_stdio_unlocked=no])])
-		if test "" = yes ; then
+		if test "$cf_cv_stdio_unlocked" = yes ; then
 			AC_DEFINE(_REENTRANT)
 		fi
 		;;

@@ -4762,7 +4762,7 @@ rm -f conftest.$ac_objext conftest.$ac_ext
 fi
 echo "$as_me:4763: result: $cf_cv_stdio_unlocked" >&5
 echo "${ECHO_T}$cf_cv_stdio_unlocked" >&6
-		if test "" = yes ; then
+		if test "$cf_cv_stdio_unlocked" = yes ; then
 			cat >>confdefs.h <<\EOF
 #define _REENTRANT 1
 EOF
