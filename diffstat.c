@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.50 2009/10/07 00:20:15 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.51 2009/11/08 01:59:15 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,9 @@ static const char *Id = "$Id: diffstat.c,v 1.50 2009/10/07 00:20:15 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		07 Nov 2009, correct suffix-check for ".xz" files as
+ *			     command-line parameters rather than as piped
+ *			     input (report by Moritz Barsnick).
  *		06 Oct 2009, fixes to build/run with MSYS or MinGW.  use
  *			     $TMPDIR for path of temporary file used in
  *			     decompression.  correct else-condition for
@@ -1888,7 +1891,7 @@ is_compressed(const char *name)
 	which = dcBzip;
     } else if (len > 5 && !strcmp(name + len - 5, ".lzma")) {
 	which = dcLzma;
-    } else if (len > 3 && !strcmp(name + len - 5, ".xz")) {
+    } else if (len > 3 && !strcmp(name + len - 3, ".xz")) {
 	which = dcLzma;
     } else {
 	which = dcNone;
@@ -2251,7 +2254,7 @@ main(int argc, char *argv[])
 	    rmdir(stdin_dir);
 	} else if (which != dcEmpty)
 #endif
-	    do_file(stdin, "unknown");
+	    do_file(stdin, "stdin");
     }
     summarize();
 #if defined(NO_LEAKS)
