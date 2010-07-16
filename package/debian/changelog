@@ -1,0 +1,5 @@
+diffstat (1.52) unstable; urgency=low
+
+  * Add package scripts to upstream source, for test-builds.
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Thu, 15 Jul 2010 19:39:36 -0400

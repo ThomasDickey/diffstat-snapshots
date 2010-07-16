@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2008,2009 by Thomas E. Dickey                               *
+ * Copyright 1994-2009,2010 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.51 2009/11/08 01:59:15 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.52 2010/07/16 09:52:40 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,12 @@ static const char *Id = "$Id: diffstat.c,v 1.51 2009/11/08 01:59:15 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		16 Jul 2010, configure "xz" path explicitly, in case lzcat
+ *			     does not support xz format.  Add "-s" (summary)
+ *			     and "-C" (color) options.
+ *		15 Jul 2010, fix strict gcc warnings, e.g., using const.
+ *		10 Jan 2010, improve a case where filenames have embedded blanks
+ *			     (patch by Reinier Post).
  *		07 Nov 2009, correct suffix-check for ".xz" files as
  *			     command-line parameters rather than as piped
  *			     input (report by Moritz Barsnick).
@@ -248,6 +254,10 @@ extern int optind;
 #define UNCOMPRESS_PATH ""
 #endif
 
+#ifndef XZ_PATH
+#define XZ_PATH ""
+#endif
+
 #ifndef ZCAT_PATH
 #define ZCAT_PATH ""
 #endif
@@ -318,6 +328,7 @@ typedef enum {
 typedef struct _data {
     struct _data *link;
     char *name;			/* the filename */
+    int copy;			/* true if filename is const-literal */
     int base;			/* beginning of name if -p option used */
     Comment cmt;
     int pending;
@@ -333,13 +344,16 @@ typedef enum {
     dcGzip,
     dcLzma,
     dcPack,
+    dcXz,
     dcEmpty
 } Decompress;
 
 static const char marks[MARKS + 1] = "+-!=";
+static const int colors[MARKS + 1] =
+{2, 1, 6, 4};
 
 static DATA *all_data;
-static char *comment_opt = "";
+static const char *comment_opt = "";
 static char *path_opt = 0;
 static int format_opt = FMT_NORMAL;
 static int max_width;		/* the specified width-limit */
@@ -349,7 +363,9 @@ static int min_name_wide;	/* minimum amount reserved for filenames */
 static int max_name_wide;	/* maximum amount reserved for filenames */
 static int names_only;		/* true if we list filenames only */
 static int num_marks = 3;	/* 3 or 4, according to "-P" option */
+static int show_colors;		/* true if showing SGR colors */
 static int show_progress;	/* if not writing to tty, show progress */
+static int summary_only = 0;	/* true if only summary line is shown */
 static int path_dest;		/* true if path_opt is destination (patched) */
 static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
@@ -420,33 +436,34 @@ compare_data(const void *a, const void *b)
 }
 
 static void
-init_data(DATA * data, char *name, int base)
+init_data(DATA * data, const char *name, int copy, int base)
 {
     memset(data, 0, sizeof(*data));
-    data->name = name;
+    data->name = (char *) name;
+    data->copy = copy;
     data->base = base;
     data->cmt = Normal;
 }
 
 static DATA *
-new_data(char *name, int base)
+new_data(const char *name, int base)
 {
     DATA *r = (DATA *) xmalloc(sizeof(DATA));
 
-    init_data(r, new_string(name), base);
+    init_data(r, new_string(name), 0, base);
 
     return r;
 }
 
 #ifdef HAVE_TSEARCH
 static DATA *
-add_tsearch_data(char *name, int base)
+add_tsearch_data(const char *name, int base)
 {
     DATA find;
     DATA *result;
     void *pp;
 
-    init_data(&find, name, base);
+    init_data(&find, name, 1, base);
     if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
 	result = *(DATA **) pp;
 	return result;
@@ -461,7 +478,7 @@ add_tsearch_data(char *name, int base)
 #endif
 
 static DATA *
-find_data(char *name)
+find_data(const char *name)
 {
     DATA *p, *q, *r;
     DATA find;
@@ -477,7 +494,7 @@ find_data(char *name)
 	    char *s = strchr(name + base, PATHSEP);
 	    if (s == 0 || *++s == EOS)
 		break;
-	    base = s - name;
+	    base = (int) (s - name);
 	}
 	TRACE(("** base set to %d\n", base));
     }
@@ -496,7 +513,7 @@ find_data(char *name)
     } else
 #endif
     {
-	init_data(&find, name, base);
+	init_data(&find, name, 1, base);
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	    int cmp = compare_data(p, &find);
 	    if (merge_names && (cmp == 0))
@@ -538,7 +555,8 @@ delink(DATA * data)
 		q->link = p->link;
 	    else
 		all_data = p->link;
-	    free(p->name);
+	    if (!p->copy)
+		free(p->name);
 	    free(p);
 	    return 1;
 	}
@@ -592,8 +610,8 @@ edit_range(const char *s)
  */
 static int
 decode_default(char *s,
-	       int *first, int *first_size,
-	       int *second, int *second_size)
+	       long *first, long *first_size,
+	       long *second, long *second_size)
 {
     int rc = 0;
     char *next;
@@ -886,7 +904,7 @@ count_lines(DATA * p)
     int result = -1;
     char *filename = 0;
     char *filetail = data_filename(p);
-    unsigned want = strlen(path_opt) + 2 + strlen(filetail);
+    size_t want = strlen(path_opt) + 2 + strlen(filetail);
     FILE *fp;
     int ch;
 
@@ -936,7 +954,7 @@ finish_chunk(DATA * p)
 	     * are marked as insert/delete.
 	     */
 	    if (p->chunk[cInsert] && p->chunk[cDelete]) {
-		int change;
+		long change;
 		if (p->chunk[cInsert] > p->chunk[cDelete]) {
 		    change = p->chunk[cDelete];
 		} else {
@@ -958,7 +976,7 @@ finish_chunk(DATA * p)
 #define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
 
 static void
-do_file(FILE *fp, char *default_name)
+do_file(FILE *fp, const char *default_name)
 {
     static const char *only_stars = "***************";
 
@@ -981,8 +999,8 @@ do_file(FILE *fp, char *default_name)
     int new_unify = 0;
     int expect_unify = 0;
 
-    int old_dft = 0;
-    int new_dft = 0;
+    long old_dft = 0;
+    long new_dft = 0;
 
     int context = 1;
 
@@ -991,8 +1009,7 @@ do_file(FILE *fp, char *default_name)
     int line_no = 0;
 #endif
 
-    memset(&dummy, 0, sizeof(dummy));
-    dummy.name = "";
+    init_data(&dummy, "", 1, 0);
 
     fixed_buffer(&buffer, fixed = length = BUFSIZ);
     fixed_buffer(&b_fname, length);
@@ -1028,7 +1045,7 @@ do_file(FILE *fp, char *default_name)
 	 * "patch -U" can create ".rej" files lacking a filename header,
 	 * in unified format.  Check for those.
 	 */
-	if (line_no == 1 && !strncmp(buffer, "@@", 2)) {
+	if (line_no == 1 && !strncmp(buffer, "@@", (size_t) 2)) {
 	    unified = 2;
 	    that = find_data(default_name);
 	    ok = begin_data(that);
@@ -1148,7 +1165,7 @@ do_file(FILE *fp, char *default_name)
 		expect_unify = 2;
 	    }
 	} else {
-	    int old_base, new_base;
+	    long old_base, new_base;
 
 	    unified = 0;
 
@@ -1156,7 +1173,7 @@ do_file(FILE *fp, char *default_name)
 		&& decode_default(buffer,
 				  &old_base, &old_dft,
 				  &new_base, &new_dft)) {
-		TRACE(("DFT %d,%d -> %d,%d\n",
+		TRACE(("DFT %ld,%ld -> %ld,%ld\n",
 		       old_base, old_base + old_dft - 1,
 		       new_base, new_base + new_dft - 1));
 		finish_chunk(that);
@@ -1186,7 +1203,7 @@ do_file(FILE *fp, char *default_name)
 	 */
 	if (marker > 0) {
 	    TRACE(("** have marker=%d, override %s\n", marker, buffer));
-	    (void) strncpy(buffer, "***", 3);
+	    (void) strncpy(buffer, "***", (size_t) 3);
 	}
 
 	/*
@@ -1379,10 +1396,12 @@ do_file(FILE *fp, char *default_name)
 	case 'b':		/* binary */
 	    CASE_TRACE();
 	    if (match(buffer + 1, "inary files ")) {
+		/* blindly assume the first filename does not contain " and " */
+		char *at_and = strstr(buffer, " and ");
 		s = strrchr(buffer, BLANK);
-		if (!strcmp(s, " differ")) {
+		if ((at_and != NULL) && !strcmp(s, " differ")) {
 		    *s = EOS;
-		    s = strrchr(buffer, BLANK);
+		    s = at_and + strlen(" and ");
 		    blip('.');
 		    finish_chunk(that);
 		    that = find_data(skip_blanks(s));
@@ -1406,13 +1425,28 @@ do_file(FILE *fp, char *default_name)
     }
 }
 
+static void
+show_color(int color)
+{
+    if (color >= 0)
+	printf("\033[%dm", color + 30);
+    else
+	printf("\033[0;39m");
+}
+
 static long
-plot_bar(long count, int c)
+plot_bar(long count, int c, int color)
 {
     long result = count;
 
+    if (show_colors && result != 0)
+	show_color(color);
+
     while (--count >= 0)
 	(void) putchar(c);
+
+    if (show_colors && result != 0)
+	show_color(-1);
 
     return result;
 }
@@ -1423,7 +1457,7 @@ plot_bar(long count, int c)
  * length from getting large.
  */
 static long
-plot_num(long num_value, int c, long *extra)
+plot_num(long num_value, int c, int color, long *extra)
 {
     long product;
     long result = 0;
@@ -1435,7 +1469,7 @@ plot_num(long num_value, int c, long *extra)
 	product = (plot_width * num_value);
 	result = ((product + *extra) / plot_scale);
 	*extra = product - (result * plot_scale) - *extra;
-	plot_bar(result, c);
+	plot_bar(result, c, color);
     }
     return result;
 }
@@ -1475,7 +1509,7 @@ plot_round1(const long num[MARKS])
 	}
     }
     for_each_mark(i) {
-	plot_bar(scaled[i], marks[i]);
+	plot_bar(scaled[i], marks[i], colors[i]);
 	result += scaled[i];
     }
     return result;
@@ -1547,7 +1581,7 @@ plot_round2(const long num[MARKS])
     }
 
     for_each_mark(i) {
-	result += plot_bar(scaled[i], marks[i]);
+	result += plot_bar(scaled[i], marks[i], colors[i]);
     }
 
     return result;
@@ -1578,7 +1612,7 @@ plot_numbers(const DATA * p)
 	switch (round_opt) {
 	default:
 	    for_each_mark(i) {
-		used += plot_num(p->count[i], marks[i], &temp);
+		used += plot_num(p->count[i], marks[i], colors[i], &temp);
 	    }
 	    break;
 	case 1:
@@ -1594,7 +1628,7 @@ plot_numbers(const DATA * p)
 	    if (used > plot_width)
 		printf("%ld", used - plot_width);	/* oops */
 	    else
-		plot_bar(plot_width - used, '.');
+		plot_bar(plot_width - used, '.', 0);
 	}
     }
 }
@@ -1609,7 +1643,9 @@ show_data(const DATA * p)
     char *name = data_filename(p);
     int width;
 
-    if (!changed(p)) {
+    if (summary_only) {
+	;
+    } else if (!changed(p)) {
 	;
     } else if (p->cmt == Binary && suppress_binary == 1) {
 	;
@@ -1811,7 +1847,7 @@ summarize(void)
 
 #ifdef HAVE_POPEN
 static const char *
-get_program(char *name, const char *dft)
+get_program(const char *name, const char *dft)
 {
     const char *result = getenv(name);
     if (result == 0 || *result == '\0')
@@ -1859,6 +1895,10 @@ decompressor(Decompress which, const char *name)
 	break;
     case dcPack:
 	verb = GET_PROGRAM(PCAT_PATH);
+	break;
+    case dcXz:
+	verb = GET_PROGRAM(XZ_PATH);
+	opts = "-dc";
 	break;
     case dcEmpty:
 	/* FALLTHRU */
@@ -1923,7 +1963,7 @@ my_mkdtemp(char *path)
 static char *
 copy_stdin(char **dirpath)
 {
-    char *tmp = getenv("TMPDIR");
+    const char *tmp = getenv("TMPDIR");
     char *result = 0;
     int ch;
     FILE *fp;
@@ -2037,7 +2077,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcdD:e:f:hklmn:N:o:p:qr:S:tuvVw:", 'h', 'V'))
+			      "bcCdD:e:f:hklmn:N:o:p:qr:sS:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -2045,12 +2085,17 @@ main(int argc, char *argv[])
 	    break;
 	case 'c':
 	    comment_opt = "#";
+	case 'C':
+	    show_colors = 1;
 	    break;
 #if OPT_TRACE
 	case 'd':
 	    trace_opt = 1;
 	    break;
 #endif
+	case 'D':
+	    set_path_opt(optarg, 1);
+	    break;
 	case 'e':
 	    if (freopen(optarg, "w", stderr) == 0)
 		failed(optarg);
@@ -2083,14 +2128,14 @@ main(int argc, char *argv[])
 	case 'p':
 	    prefix_opt = atoi(optarg);
 	    break;
-	case 'D':
-	    set_path_opt(optarg, 1);
+	case 'r':
+	    round_opt = atoi(optarg);
+	    break;
+	case 's':
+	    summary_only = 1;
 	    break;
 	case 'S':
 	    set_path_opt(optarg, 0);
-	    break;
-	case 'r':
-	    round_opt = atoi(optarg);
 	    break;
 	case 't':
 	    table_opt = 1;
@@ -2184,7 +2229,7 @@ main(int argc, char *argv[])
 		    sniff[got++] = (char) ch;
 		}
 		if (got == 5
-		    && !strncmp(sniff, "BZh", 3)
+		    && !strncmp(sniff, "BZh", (size_t) 3)
 		    && isdigit((unsigned char) sniff[3])
 		    && isdigit((unsigned char) sniff[4])) {
 		    which = dcBzip;
@@ -2197,7 +2242,7 @@ main(int argc, char *argv[])
 		    sniff[got++] = (char) ch;
 		}
 		if (got == 4
-		    && !memcmp(sniff, "]\0\0\200", 4)) {
+		    && !memcmp(sniff, "]\0\0\200", (size_t) 4)) {
 		    which = dcLzma;
 		}
 	    } else if (ch == 0xfd) {	/* perhaps xz */
@@ -2208,8 +2253,8 @@ main(int argc, char *argv[])
 		    sniff[got++] = (char) ch;
 		}
 		if (got == 6
-		    && !memcmp(sniff, "\3757zXZ\0", 6)) {
-		    which = dcLzma;
+		    && !memcmp(sniff, "\3757zXZ\0", (size_t) 6)) {
+		    which = dcXz;
 		}
 	    } else if (ch == '\037') {	/* perhaps compress, etc. */
 		sniff[got++] = (char) ch;
