@@ -1,4 +1,9 @@
--- $Id: CHANGES,v 1.63 2010/07/16 09:53:33 tom Exp $
+-- $Id: CHANGES,v 1.64 2010/07/19 09:50:32 tom Exp $
+
+2010/07/19 (diffstat 1.53)
+
+	+ add missing "break" statement which left "-c" option falling-through
+	  into "-C".
 
 2010/07/16 (diffstat 1.52)
 

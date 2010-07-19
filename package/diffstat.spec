@@ -1,7 +1,7 @@
 Summary:  diffstat - make histogram from diff-output
 %define AppProgram diffstat
-%define AppVersion 1.52
-# $XTermId: diffstat.spec,v 1.1 2010/07/15 23:12:48 tom Exp $
+%define AppVersion 1.53
+# $XTermId: diffstat.spec,v 1.2 2010/07/19 09:50:47 tom Exp $
 Name: %{AppProgram}
 Version: %{AppVersion}
 Release: 1
