@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.52 2010/07/16 09:52:40 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.53 2010/07/19 09:49:21 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.52 2010/07/16 09:52:40 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		19 Jul 2010, add missing "break" statement which left "-c"
+ *			     option falling-through into "-C".
  *		16 Jul 2010, configure "xz" path explicitly, in case lzcat
  *			     does not support xz format.  Add "-s" (summary)
  *			     and "-C" (color) options.
@@ -2085,6 +2087,7 @@ main(int argc, char *argv[])
 	    break;
 	case 'c':
 	    comment_opt = "#";
+	    break;
 	case 'C':
 	    show_colors = 1;
 	    break;

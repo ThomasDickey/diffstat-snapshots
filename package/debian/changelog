@@ -1,3 +1,9 @@
+diffstat (1.53) unstable; urgency=low
+
+  * Fix regression in "-c" option.
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Thu, 15 Jul 2010 19:39:36 -0400
+
 diffstat (1.52) unstable; urgency=low
 
   * Add package scripts to upstream source, for test-builds.
