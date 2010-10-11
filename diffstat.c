@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.53 2010/07/19 09:49:21 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.54 2010/10/10 21:38:34 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.53 2010/07/19 09:49:21 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		10 Oct 2010, correct display of new files when -S/-D options
+ *			     are used.  Remove the temporary directory on
+ *			     error, introduced in 1.48+ (patch by Solaris
+ *			     Designer).
  *		19 Jul 2010, add missing "break" statement which left "-c"
  *			     option falling-through into "-C".
  *		16 Jul 2010, configure "xz" path explicitly, in case lzcat
@@ -911,7 +915,40 @@ count_lines(DATA * p)
     int ch;
 
     if ((filename = malloc(want)) != 0) {
-	sprintf(filename, "%s/%s", path_opt, filetail);
+	int merge = 0;
+
+	if (path_dest) {
+	    size_t path_len = strlen(path_opt);
+	    size_t tail_len;
+	    char *tail_sep = strchr(filetail, PATHSEP);
+
+	    if (tail_sep != 0) {
+		tail_len = (size_t) (tail_sep - filetail);
+		if (tail_len != 0 && tail_len <= path_len) {
+		    if (tail_len < path_len
+			&& path_opt[path_len - tail_len - 1] != PATHSEP) {
+			merge = 0;
+		    } else if (!strncmp(path_opt + path_len - tail_len,
+					filetail,
+					tail_len - 1)) {
+			merge = 1;
+			if (path_len > tail_len) {
+			    sprintf(filename, "%.*s%c%s",
+				    (int) (path_len - tail_len),
+				    path_opt,
+				    PATHSEP,
+				    filetail);
+			} else {
+			    strcpy(filename, filetail);
+			}
+		    }
+		}
+	    }
+	}
+	if (!merge) {
+	    sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
+	}
+
 	TRACE(("count_lines %s\n", filename));
 	if ((fp = fopen(filename, "r")) != 0) {
 	    result = 0;
@@ -1259,7 +1296,7 @@ do_file(FILE *fp, const char *default_name)
 	case 'd':		/* diff command trace */
 	    CASE_TRACE();
 	    if (match(buffer, "diff ")
-		&& *(s = skip_options(buffer + 5)) != '\0') {
+		&& *skip_options(buffer + 5) != '\0') {
 		s = strrchr(buffer, BLANK);
 		s = skip_blanks(s);
 		dequote(s);
@@ -1776,12 +1813,10 @@ summarize(void)
 
 		if (count >= 0) {
 		    EqlOf(p) = count - ModOf(p);
-		    if (path_dest) {
+		    if (path_dest != 0) {
 			EqlOf(p) -= InsOf(p);
-			InsOf(p) = 0;
 		    } else {
 			EqlOf(p) -= DelOf(p);
-			DelOf(p) = 0;
 		    }
 		    if (EqlOf(p) < 0)
 			EqlOf(p) = 0;
@@ -1988,7 +2023,13 @@ copy_stdin(char **dirpath)
 	} else {
 	    free(result);
 	    result = 0;
+	    rmdir(*dirpath);	/* Assume that the /stdin file was not created */
+	    free(*dirpath);
+	    *dirpath = 0;
 	}
+    } else {
+	free(*dirpath);
+	*dirpath = 0;
     }
     return result;
 }
@@ -2299,7 +2340,11 @@ main(int argc, char *argv[])
 	    free(command);
 
 	    unlink(myfile);
+	    free(myfile);
+	    myfile = 0;
 	    rmdir(stdin_dir);
+	    free(stdin_dir);
+	    stdin_dir = 0;
 	} else if (which != dcEmpty)
 #endif
 	    do_file(stdin, "stdin");

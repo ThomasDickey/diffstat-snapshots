@@ -1,3 +1,10 @@
+diffstat (1.54) unstable; urgency=low
+
+  * Fix counts for -S/-D options.
+  * change source format to native.
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Sun, 10 Oct 2010 14:13:13 -0400
+
 diffstat (1.53) unstable; urgency=low
 
   * Fix regression in "-c" option.
