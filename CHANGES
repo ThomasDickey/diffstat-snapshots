@@ -1,4 +1,14 @@
--- $Id: CHANGES,v 1.64 2010/07/19 09:50:32 tom Exp $
+-- $Id: CHANGES,v 1.66 2010/10/10 23:29:13 tom Exp $
+
+2010/10/10 (diffstat 1.54)
+	+ change Debian package script to use native format.
+
+	+ correct counts used for new files when -S/-D options are used.
+
+	+ minor typography improvement to manpage (patch by Solaris Designer)
+
+	+ remove the temporary directory on error, introduced in 1.48+ (patch
+	  by Solaris Designer).
 
 2010/07/19 (diffstat 1.53)
 
