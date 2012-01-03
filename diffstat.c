@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2009,2010 by Thomas E. Dickey                               *
+ * Copyright 1994-2010,2012 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.54 2010/10/10 21:38:34 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.55 2012/01/03 09:44:24 tom Exp $";
 #endif
 
 /*
@@ -28,9 +28,13 @@ static const char *Id = "$Id: diffstat.c,v 1.54 2010/10/10 21:38:34 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		03 Jan 2012, Correct case for "xz" suffix in is_compressed()
+ *			     (patch from Frederic Culot in FreeBSD ports).  Add
+ *			     "-R" option.  Improve dequoting of filenames in
+ *			     headers.
  *		10 Oct 2010, correct display of new files when -S/-D options
  *			     are used.  Remove the temporary directory on
- *			     error, introduced in 1.48+ (patch by Solaris
+ *			     error, introduced in 1.48+ (patch by Solar
  *			     Designer).
  *		19 Jul 2010, add missing "break" statement which left "-c"
  *			     option falling-through into "-C".
@@ -369,6 +373,7 @@ static int min_name_wide;	/* minimum amount reserved for filenames */
 static int max_name_wide;	/* maximum amount reserved for filenames */
 static int names_only;		/* true if we list filenames only */
 static int num_marks = 3;	/* 3 or 4, according to "-P" option */
+static int reverse_opt;		/* true if results are reversed */
 static int show_colors;		/* true if showing SGR colors */
 static int show_progress;	/* if not writing to tty, show progress */
 static int summary_only = 0;	/* true if only summary line is shown */
@@ -570,9 +575,13 @@ delink(DATA * data)
     return 0;
 }
 
-/* like strncmp, but without the 3rd argument */
-static int
-match(const char *s, const char *p)
+/*
+ * Compare string 's' against a constant, returning either a pointer just
+ * past the matched part of 's' if it matches exactly, or null if a mismatch
+ * was found.
+ */
+static char *
+match(char *s, const char *p)
 {
     int ok = 0;
 
@@ -588,7 +597,7 @@ match(const char *s, const char *p)
 	    break;
 	}
     }
-    return ok;
+    return ok ? s : 0;
 }
 
 static int
@@ -646,7 +655,7 @@ decode_default(char *s,
 			*second_size = strtol(s, &next, 10) + 1 - *second;
 		    }
 		}
-		if (next != 0 && next != s && *next == '\0')
+		if (next != 0 && next != s && *next == EOS)
 		    rc = 1;
 		break;
 	    }
@@ -714,92 +723,173 @@ is_leaf(const char *theLeaf, const char *path)
 }
 
 static char *
+trim_datapath(DATA ** datap, size_t length, int *localp)
+{
+    char *target = (*datap)->name;
+
+#ifdef HAVE_TSEARCH
+    /*
+     * If we are using tsearch(), make a local copy of the data
+     * so we can trim it without interfering with tsearch's
+     * notion of the ordering of data.  That will create some
+     * spurious empty data, so we add the changed() macro in a
+     * few places to skip over those.
+     */
+    if (use_tsearch) {
+	char *trim = new_string(target);
+	trim[length] = EOS;
+	*datap = add_tsearch_data(trim, (*datap)->base);
+	target = (*datap)->name;
+	free(trim);
+	*localp = 1;
+    } else
+#endif
+	target[length] = EOS;
+
+    return target;
+}
+
+/*
+ * The 'data' parameter points to the first of two markers, while
+ * 'path' is the pathname from the second marker.
+ *
+ * On the first call for
+ * a given file, the 'data' parameter stores no differences.
+ */
+static char *
 do_merging(DATA * data, char *path, int *freed)
 {
-    TRACE(("** do_merging(%s,%s) diffs:%d\n", data->name, path, HadDiffs(data)));
+    char *target = reverse_opt ? path : data->name;
+    char *source = reverse_opt ? data->name : path;
+    char *result = source;
+
+    TRACE(("** do_merging(\"%s\",\"%s\") diffs:%d\n",
+	   data->name, path, HadDiffs(data)));
 
     *freed = 0;
-    if (!HadDiffs(data)) {	/* the data was the first of 2 markers */
-	if (is_leaf(data->name, path)) {
-	    TRACE(("** is_leaf: %s vs %s\n", data->name, path));
-	    *freed = delink(data);
-	} else if (can_be_merged(data->name)
-		   && can_be_merged(path)) {
-	    size_t len1 = strlen(data->name);
-	    size_t len2 = strlen(path);
-	    unsigned n;
+    if (!HadDiffs(data)) {
+
+	if (is_leaf(target, source)) {
+	    TRACE(("** is_leaf: \"%s\" vs \"%s\"\n", target, source));
+	    if (reverse_opt) {
+		TRACE((".. no action @%d\n", __LINE__));
+	    } else {
+		*freed = delink(data);
+	    }
+	} else if (can_be_merged(target)
+		   && can_be_merged(source)) {
+	    size_t len1 = strlen(target);
+	    size_t len2 = strlen(source);
+	    size_t n;
 	    int matched = 0;
 	    int diff = 0;
 	    int local = 0;
 
 	    /*
-	     * Strip suffixes such as ".orig", ".bak", "~", etc.  The current
-	     * data for the merge is in 'path'.  The previous data (in
-	     * 'data->name') may also be a temporary filename (which would not
-	     * be merged since it has no apparent relationship to the current).
+	     * If the source/target differ only by some suffix, e.g., ".orig"
+	     * or ".bak", strip that off.  The target may may also be a
+	     * temporary filename (which would not be merged since it has no
+	     * apparent relationship to the current).
 	     */
 	    if (len1 > len2) {
-		if (!strncmp(data->name, path, len2)) {
-		    TRACE(("** trimming data '%s' to '%.*s'\n",
-			   data->name, (int) len2, data->name));
-		    len1 = len2;
-#ifdef HAVE_TSEARCH
-		    /*
-		     * If we are using tsearch(), make a local copy of the data
-		     * so we can trim it without interfering with tsearch's
-		     * notion of the ordering of data.  That will create some
-		     * spurious empty data, so we add the changed() macro in a
-		     * few places to skip over those.
-		     */
-		    if (use_tsearch) {
-			char *trim = new_string(data->name);
-			trim[len1] = EOS;
-			data = add_tsearch_data(trim, data->base);
-			free(trim);
-			local = 1;
-		    } else
-#endif
-			data->name[len1] = EOS;
+		if (!strncmp(target, source, len2)) {
+		    TRACE(("** trimming data \"%s\" to \"%.*s\"\n",
+			   target, (int) len2, target));
+		    if (reverse_opt) {
+			TRACE((".. no action @%d\n", __LINE__));
+		    } else {
+			target = trim_datapath(&data, len1 = len2, &local);
+		    }
 		}
 	    } else if (len1 < len2) {
-		if (!strncmp(data->name, path, len1)) {
-		    TRACE(("** trimming path '%s' to '%.*s'\n",
-			   path, (int) len1, path));
-		    path[len2 = len1] = EOS;
+		if (!strncmp(target, source, len1)) {
+		    TRACE(("** trimming source \"%s\" to \"%.*s\"\n",
+			   source, (int) len1, source));
+		    if (reverse_opt) {
+			TRACE((".. no action @%d\n", __LINE__));
+		    } else {
+			source[len2 = len1] = EOS;
+		    }
 		}
 	    }
 
-	    for (n = 1; n <= len1 && n <= len2; n++) {
-		if (data->name[len1 - n] != path[len2 - n]) {
-		    diff = (int) n;
-		    break;
+	    /*
+	     * If there was no "-p" option, look for the best match by
+	     * stripping prefixes from both source/target strings.
+	     */
+	    if (prefix_opt < 0) {
+		/*
+		 * Now (whether or not we trimmed a suffix), scan back from the
+		 * end of source/target strings to find if they happen to share
+		 * a common ending, e.g., a/b/c versus d/b/c.  If the strings
+		 * are not identical, then 'diff' will be set, but if they have
+		 * a common ending then 'matched' will be set.
+		 */
+		for (n = 1; n <= len1 && n <= len2; n++) {
+		    if (target[len1 - n] != source[len2 - n]) {
+			diff = (int) n;
+			break;
+		    }
+		    if (source[len2 - n] == PATHSEP) {
+			matched = (int) n;
+		    }
 		}
-		if (path[len2 - n] == PATHSEP)
-		    matched = (int) n;
+
+		TRACE(("** merge @%d, prefix_opt=%d matched=%d diff=%d\n",
+		       __LINE__, prefix_opt, matched, diff));
+		if (matched != 0 && diff) {
+		    if (reverse_opt) {
+			TRACE((".. no action @%d\n", __LINE__));
+		    } else {
+			result = source + ((int) len2 - matched + 1);
+		    }
+		}
 	    }
 
-	    if (prefix_opt < 0
-		&& matched != 0
-		&& diff)
-		path += ((int) len2 - matched + 1);
-
-	    if (!local)
-		*freed = delink(data);
-	    TRACE(("** merge @%d, prefix_opt=%d matched=%d diff=%d\n",
-		   __LINE__, prefix_opt, matched, diff));
-	} else if (!can_be_merged(path)) {
-	    TRACE(("** do not merge, retain @%d\n", __LINE__));
-	    /* must not merge, retain existing name */
-	    path = data->name;
+	    if (!local) {
+		if (reverse_opt) {
+		    TRACE((".. no action @%d\n", __LINE__));
+		} else {
+		    *freed = delink(data);
+		}
+	    }
+	} else if (reverse_opt) {
+	    TRACE((".. no action @%d\n", __LINE__));
+	    if (can_be_merged(source)) {
+		TRACE(("** merge @%d\n", __LINE__));
+	    } else {
+		TRACE(("** do not merge, retain @%d\n", __LINE__));
+		/* must not merge, retain existing name */
+		result = target;
+	    }
 	} else {
-	    TRACE(("** merge @%d\n", __LINE__));
-	    *freed = delink(data);
+	    if (can_be_merged(source)) {
+		TRACE(("** merge @%d\n", __LINE__));
+		*freed = delink(data);
+	    } else {
+		TRACE(("** do not merge, retain @%d\n", __LINE__));
+		/* must not merge, retain existing name */
+		result = target;
+	    }
 	}
-    } else if (!can_be_merged(path)) {
-	path = data->name;
+    } else if (reverse_opt) {
+	TRACE((".. no action @%d\n", __LINE__));
+	if (can_be_merged(source)) {
+	    TRACE(("** merge @%d\n", __LINE__));
+	    result = target;
+	} else {
+	    TRACE(("** do not merge, retain @%d\n", __LINE__));
+	}
+    } else {
+	if (can_be_merged(source)) {
+	    TRACE(("** merge @%d\n", __LINE__));
+	} else {
+	    TRACE(("** do not merge, retain @%d\n", __LINE__));
+	    result = target;
+	}
     }
-    TRACE(("** finish do_merging ->%s\n", path));
-    return path;
+    TRACE(("** finish do_merging ->\"%s\"\n", result));
+    return result;
 }
 
 static int
@@ -822,10 +912,31 @@ skip_blanks(char *s)
     return s;
 }
 
+/*
+ * Skip a filename, which may be in quotes, to allow embedded blanks in the
+ * name.
+ */
+static char *
+skip_filename(char *s)
+{
+    if (*s == SQUOTE && s[1] != EOS && strchr(s + 1, SQUOTE)) {
+	++s;
+	while (*s != EOS && (*s != SQUOTE) && isgraph(UC(*s))) {
+	    ++s;
+	}
+	++s;
+    } else {
+	while (*s != EOS && isgraph(UC(*s))) {
+	    ++s;
+	}
+    }
+    return s;
+}
+
 static char *
 skip_options(char *params)
 {
-    while (*params != '\0') {
+    while (*params != EOS) {
 	params = skip_blanks(params);
 	if (*params == '-') {
 	    while (isgraph(UC(*params)))
@@ -834,7 +945,7 @@ skip_options(char *params)
 	    break;
 	}
     }
-    return params;
+    return skip_blanks(params);
 }
 
 /*
@@ -891,7 +1002,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
 	if (ch == '\n')
 	    break;
     }
-    (*buffer)[used] = '\0';
+    (*buffer)[used] = EOS;
     return (used != 0);
 }
 
@@ -1183,7 +1294,7 @@ do_file(FILE *fp, const char *default_name)
 		if (new_unify)
 		    --new_unify;
 		break;
-	    case '\0':
+	    case EOS:
 	    case ' ':
 		if (old_unify)
 		    --old_unify;
@@ -1281,8 +1392,7 @@ do_file(FILE *fp, const char *default_name)
 	     */
 	case 'I':
 	    CASE_TRACE();
-	    if (match(buffer, "Index: ")) {
-		s = strrchr(buffer, BLANK);	/* last token is name */
+	    if ((s = match(buffer, "Index: ")) != 0) {
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
@@ -1295,10 +1405,14 @@ do_file(FILE *fp, const char *default_name)
 
 	case 'd':		/* diff command trace */
 	    CASE_TRACE();
-	    if (match(buffer, "diff ")
-		&& *skip_options(buffer + 5) != '\0') {
-		s = strrchr(buffer, BLANK);
-		s = skip_blanks(s);
+	    if ((s = match(buffer, "diff ")) != 0
+		&& *(s = skip_options(s)) != EOS) {
+		if (reverse_opt) {
+		    *skip_filename(s) = EOS;
+		} else {
+		    s = skip_filename(s);
+		    s = skip_blanks(s);
+		}
 		dequote(s);
 		blip('.');
 		finish_chunk(that);
@@ -1434,16 +1548,24 @@ do_file(FILE *fp, const char *default_name)
 	    /* FALL-THRU */
 	case 'b':		/* binary */
 	    CASE_TRACE();
-	    if (match(buffer + 1, "inary files ")) {
+	    if ((s = match(buffer + 1, "inary files ")) != 0) {
+		char *first = skip_blanks(s);
 		/* blindly assume the first filename does not contain " and " */
-		char *at_and = strstr(buffer, " and ");
+		char *at_and = strstr(s, " and ");
 		s = strrchr(buffer, BLANK);
 		if ((at_and != NULL) && !strcmp(s, " differ")) {
-		    *s = EOS;
-		    s = at_and + strlen(" and ");
+		    char *second = skip_blanks(at_and + 5);
+
+		    if (reverse_opt) {
+			*at_and = EOS;
+			s = first;
+		    } else {
+			*s = EOS;
+			s = second;
+		    }
 		    blip('.');
 		    finish_chunk(that);
-		    that = find_data(skip_blanks(s));
+		    that = find_data(s);
 		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
 		}
@@ -1808,6 +1930,12 @@ summarize(void)
     for (p = all_data; p; p = p->link) {
 	if (!ignore_data(p)) {
 	    EqlOf(p) = 0;
+	    if (reverse_opt) {
+		int save_ins = InsOf(p);
+		int save_del = DelOf(p);
+		InsOf(p) = save_del;
+		DelOf(p) = save_ins;
+	    }
 	    if (path_opt != 0) {
 		int count = count_lines(p);
 
@@ -1887,7 +2015,7 @@ static const char *
 get_program(const char *name, const char *dft)
 {
     const char *result = getenv(name);
-    if (result == 0 || *result == '\0')
+    if (result == 0 || *result == EOS)
 	result = dft;
     TRACE(("get_program(%s) = %s\n", name, result));
     return result;
@@ -1969,7 +2097,7 @@ is_compressed(const char *name)
     } else if (len > 5 && !strcmp(name + len - 5, ".lzma")) {
 	which = dcLzma;
     } else if (len > 3 && !strcmp(name + len - 3, ".xz")) {
-	which = dcLzma;
+	which = dcXz;
     } else {
 	which = dcNone;
     }
@@ -2079,6 +2207,7 @@ usage(FILE *fp)
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -q      suppress the \"0 files changed\" message for empty diffs",
 	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
+	"  -R      assume patch was created with old and new files swapped",
 	"  -S PATH specify location of original files, use for unchanged-count",
 	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
@@ -2120,7 +2249,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcCdD:e:f:hklmn:N:o:p:qr:sS:tuvVw:", 'h', 'V'))
+			      "bcCdD:e:f:hklmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -2174,6 +2303,9 @@ main(int argc, char *argv[])
 	    break;
 	case 'r':
 	    round_opt = atoi(optarg);
+	    break;
+	case 'R':
+	    reverse_opt = 1;
 	    break;
 	case 's':
 	    summary_only = 1;
