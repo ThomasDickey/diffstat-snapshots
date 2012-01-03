@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.29 2010/10/10 17:13:40 Solar.Designer Exp $
+.\" $Id: diffstat.1,v 1.30 2012/01/02 19:20:26 tom Exp $
 .TH DIFFSTAT 1
 .SH NAME
 \fBdiffstat\fP \- make histogram from diff-output
@@ -158,6 +158,9 @@ rounds the data and adjusts the histogram to ensure that
 it displays something if there are any differences even if
 those would normally be rounded to zero.
 .RE
+.TP
+.B \-R
+Assume patch was created with old and new files swapped.
 .TP
 .BI \-s
 show only the summary line, e.g., number of insertions and deletions.

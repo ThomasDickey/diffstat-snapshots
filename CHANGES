@@ -1,14 +1,32 @@
--- $Id: CHANGES,v 1.66 2010/10/10 23:29:13 tom Exp $
+-- $Id: CHANGES,v 1.73 2012/01/03 09:38:29 tom Exp $
+
+2012/01/03 (diffstat 1.55)
+	+ add -R option, like patch's, to reverse the order of the comparison.
+
+	+ FreeBSD ports/148604, ports/149500 reported that lzcat may not
+	  support extracting files compressed in xz format (patch by Frederic
+	  Culot, FreeBSD #149500).
+
+	+ address documentation issue raised in Novell #739210
+
+	+ correct typo s/Solaris/Solar/.
+
+	+ updated configure script macros:
+	  CF_ANSI_CC_CHECK CF_DISABLE_LEAKS CF_GCC_ATTRIBUTES CF_GCC_WARNINGS
+	  CF_MAKE_TAGS CF_MSG_LOG CF_PATH_PROG CF_WITH_INSTALL_PREFIX
+	  CF_XOPEN_SOURCE
+
+	+ update config.guess, config.sub
 
 2010/10/10 (diffstat 1.54)
 	+ change Debian package script to use native format.
 
 	+ correct counts used for new files when -S/-D options are used.
 
-	+ minor typography improvement to manpage (patch by Solaris Designer)
+	+ minor typography improvement to manpage (patch by Solar Designer)
 
 	+ remove the temporary directory on error, introduced in 1.48+ (patch
-	  by Solaris Designer).
+	  by Solar Designer).
 
 2010/07/19 (diffstat 1.53)
 
