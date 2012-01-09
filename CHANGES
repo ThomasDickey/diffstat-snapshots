@@ -1,4 +1,6 @@
--- $Id: CHANGES,v 1.73 2012/01/03 09:38:29 tom Exp $
+-- $Id: CHANGES,v 1.74 2012/01/09 01:47:18 tom Exp $
+
+	+ fix typo in package/debian/control
 
 2012/01/03 (diffstat 1.55)
 	+ add -R option, like patch's, to reverse the order of the comparison.
