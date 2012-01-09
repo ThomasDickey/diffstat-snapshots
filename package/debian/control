@@ -9,7 +9,7 @@ Homepage: http://invisible-island.net/diffstat/
 Package: diffstat
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: generate C function prototypes and convert function definitions
+Description: produces graph of changes introduced by a diff between files.
  Diffstat is is useful for reviewing large, complex patch files.  It reads from
  one or more input files which contain output from diff, producing a histogram
  of the total lines changed for each file referenced.
