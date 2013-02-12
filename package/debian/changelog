@@ -1,3 +1,10 @@
+diffstat (1.56) unstable; urgency=low
+
+  * Configure-script updates
+  * Debian #675475
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Tue, 03 Jan 2012 04:39:50 -0500
+
 diffstat (1.55) unstable; urgency=low
 
   * Add -R option.

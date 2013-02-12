@@ -1,7 +1,7 @@
 Summary:  diffstat - make histogram from diff-output
 %define AppProgram diffstat
-%define AppVersion 1.55
-# $XTermId: diffstat.spec,v 1.4 2012/01/03 09:39:12 tom Exp $
+%define AppVersion 1.56
+# $XTermId: diffstat.spec,v 1.5 2013/02/12 00:52:16 tom Exp $
 Name: %{AppProgram}
 Version: %{AppVersion}
 Release: 1
@@ -17,6 +17,8 @@ one or more input files which contain output from diff, producing a histogram
 of the total lines changed for each file referenced.
 
 %prep
+
+%define debug_package %{nil}
 
 %setup -q -n %{AppProgram}-%{AppVersion}
 

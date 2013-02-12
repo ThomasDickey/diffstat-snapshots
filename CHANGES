@@ -1,4 +1,29 @@
--- $Id: CHANGES,v 1.74 2012/01/09 01:47:18 tom Exp $
+-- $Id: CHANGES,v 1.81 2013/02/12 00:39:27 tom Exp $
+
+2013/02/11 (diffstat 1.56)
+	+ add -K option which attempts to improve the annotation of "only"
+	  files by looking for a match in the resulting set of files and
+	  inferring whether the file was added or removed (request by Marc
+	  Haber).
+
+	+ add check of command-line options for valid numbers.
+
+	+ improve merging of patches for the same filename (report/testcase by
+	  Paul E McKenney).
+
+	+ document -d option in manpage.
+
+	+ document -b, -C, -s option in usage (patch by Tim Waugh, Red Hat
+	  #852770)
+
+	+ modify configure script as done for byacc in 2012/10/03, making the
+	  2.52-patches the prerequisite and adding support for --datarootdir
+	  option.
+
+	+ update config.guess, config.sub
+
+	+ add logic to handle SVN diffs when the pathnames contain spaces
+	  (patch by Stuart Prescott, Debian #675475).
 
 	+ fix typo in package/debian/control
 
