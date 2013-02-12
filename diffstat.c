@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2010,2012 by Thomas E. Dickey                               *
+ * Copyright 1994-2012,2013 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.55 2012/01/03 09:44:24 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.56 2013/02/12 00:03:20 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,13 @@ static const char *Id = "$Id: diffstat.c,v 1.55 2012/01/03 09:44:24 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		11 Feb 2013, add -K option.  Use strtol() to provide error
+ *			     checking of optarg values.
+ *		10 Feb 2013, document -b, -C, -s option in usage (patch by
+ *			     Tim Waugh, Red Hat #852770).  Improve pathname
+ *			     merging.
+ *		02 Jun 2012, fix for svn diff with spaces in path (patch by
+ *			     Stuart Prescott, Debian #675465).
  *		03 Jan 2012, Correct case for "xz" suffix in is_compressed()
  *			     (patch from Frederic Culot in FreeBSD ports).  Add
  *			     "-R" option.  Improve dequoting of filenames in
@@ -315,7 +322,7 @@ extern int optind;
 #define FMT_VERBOSE  4
 
 typedef enum comment {
-    Normal, Only, Binary
+    Normal, Only, OnlyLeft, OnlyRight, Binary
 } Comment;
 
 #define MARKS 4			/* each of +, - and ! */
@@ -365,28 +372,29 @@ static const int colors[MARKS + 1] =
 static DATA *all_data;
 static const char *comment_opt = "";
 static char *path_opt = 0;
+static int count_files;		/* true if we count added/deleted files */
 static int format_opt = FMT_NORMAL;
+static int max_name_wide;	/* maximum amount reserved for filenames */
 static int max_width;		/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
 static int merge_opt = 0;	/* true if we merge ins/del as modified */
 static int min_name_wide;	/* minimum amount reserved for filenames */
-static int max_name_wide;	/* maximum amount reserved for filenames */
 static int names_only;		/* true if we list filenames only */
 static int num_marks = 3;	/* 3 or 4, according to "-P" option */
-static int reverse_opt;		/* true if results are reversed */
-static int show_colors;		/* true if showing SGR colors */
-static int show_progress;	/* if not writing to tty, show progress */
-static int summary_only = 0;	/* true if only summary line is shown */
 static int path_dest;		/* true if path_opt is destination (patched) */
 static int plot_width;		/* the amount left over for histogram */
 static int prefix_opt = -1;	/* if positive, controls stripping of PATHSEP */
+static int quiet = 0;		/* -q option */
+static int reverse_opt;		/* true if results are reversed */
 static int round_opt = 0;	/* if nonzero, round data for histogram */
+static int show_colors;		/* true if showing SGR colors */
+static int show_progress;	/* if not writing to tty, show progress */
+static int sort_names = 1;	/* true if we sort filenames */
+static int summary_only = 0;	/* true if only summary line is shown */
+static int suppress_binary = 0;	/* -b option */
 static int table_opt = 0;	/* if nonzero, write table rather than plot */
 static int trace_opt = 0;	/* if nonzero, write debugging information */
-static int sort_names = 1;	/* true if we sort filenames */
 static int verbose = 0;		/* -v option */
-static int quiet = 0;		/* -q option */
-static int suppress_binary = 0;	/* -b option */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
 #ifdef HAVE_TSEARCH
@@ -397,6 +405,10 @@ static void *sorted_data;
 static int prefix_len = -1;
 
 /******************************************************************************/
+
+#ifdef GCC_NORETURN
+static void failed(const char *) GCC_NORETURN;
+#endif
 
 static void
 failed(const char *s)
@@ -749,6 +761,27 @@ trim_datapath(DATA ** datap, size_t length, int *localp)
     return target;
 }
 
+static size_t
+compare_tails(const char *target, const char *source, int *diff)
+{
+    size_t len1 = strlen(target);
+    size_t len2 = strlen(source);
+    size_t n;
+    size_t matched = 0;
+
+    *diff = 0;
+    for (n = 1; n <= len1 && n <= len2; n++) {
+	if (target[len1 - n] != source[len2 - n]) {
+	    *diff = (int) n;
+	    break;
+	}
+	if (source[len2 - n] == PATHSEP) {
+	    matched = n;
+	}
+    }
+    return matched;
+}
+
 /*
  * The 'data' parameter points to the first of two markers, while
  * 'path' is the pathname from the second marker.
@@ -762,6 +795,7 @@ do_merging(DATA * data, char *path, int *freed)
     char *target = reverse_opt ? path : data->name;
     char *source = reverse_opt ? data->name : path;
     char *result = source;
+    int diff;
 
     TRACE(("** do_merging(\"%s\",\"%s\") diffs:%d\n",
 	   data->name, path, HadDiffs(data)));
@@ -780,9 +814,7 @@ do_merging(DATA * data, char *path, int *freed)
 		   && can_be_merged(source)) {
 	    size_t len1 = strlen(target);
 	    size_t len2 = strlen(source);
-	    size_t n;
 	    int matched = 0;
-	    int diff = 0;
 	    int local = 0;
 
 	    /*
@@ -825,15 +857,8 @@ do_merging(DATA * data, char *path, int *freed)
 		 * are not identical, then 'diff' will be set, but if they have
 		 * a common ending then 'matched' will be set.
 		 */
-		for (n = 1; n <= len1 && n <= len2; n++) {
-		    if (target[len1 - n] != source[len2 - n]) {
-			diff = (int) n;
-			break;
-		    }
-		    if (source[len2 - n] == PATHSEP) {
-			matched = (int) n;
-		    }
-		}
+		diff = 0;
+		matched = (int) compare_tails(target, source, &diff);
 
 		TRACE(("** merge @%d, prefix_opt=%d matched=%d diff=%d\n",
 		       __LINE__, prefix_opt, matched, diff));
@@ -883,6 +908,13 @@ do_merging(DATA * data, char *path, int *freed)
     } else {
 	if (can_be_merged(source)) {
 	    TRACE(("** merge @%d\n", __LINE__));
+	    if (merge_names
+		&& *target != '\0'
+		&& prefix_opt < 0) {
+		size_t matched = compare_tails(target, source, &diff);
+		if (matched)
+		    result = target + (int) (strlen(target) - matched);
+	    }
 	} else {
 	    TRACE(("** do not merge, retain @%d\n", __LINE__));
 	    result = target;
@@ -895,6 +927,7 @@ do_merging(DATA * data, char *path, int *freed)
 static int
 begin_data(const DATA * p)
 {
+    TRACE(("...begin_data(%s)\n", p->name));
     if (!can_be_merged(p->name)
 	&& strchr(p->name, PATHSEP) != 0) {
 	TRACE(("** begin_data:HAVE_PATH\n"));
@@ -1444,6 +1477,10 @@ do_file(FILE *fp, const char *default_name)
 			       &hour, &minute, &second) == 9
 			&& date_delims(yrmon, monday)
 			&& !version_num(b_fname))
+		    || (sscanf(buffer,
+			       "*** %[^\t]\t(%[^)])\t(%[^)])",
+			       b_fname, b_temp1, b_temp2) == 3
+			&& !version_num(b_fname))
 		    || sscanf(buffer,
 			      "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
 			      b_fname,
@@ -1577,13 +1614,11 @@ do_file(FILE *fp, const char *default_name)
 
     finish_chunk(that);
     finish_chunk(&dummy);
-    if (buffer != 0) {
-	free(buffer);
-	free(b_fname);
-	free(b_temp1);
-	free(b_temp2);
-	free(b_temp3);
-    }
+    free(buffer);
+    free(b_fname);
+    free(b_temp1);
+    free(b_temp2);
+    free(b_temp3);
 }
 
 static void
@@ -1820,6 +1855,11 @@ show_data(const DATA * p)
 		   ModOf(p));
 	    if (path_opt)
 		printf("%ld,", EqlOf(p));
+	    if (count_files && !reverse_opt)
+		printf("%d,%d,%d,",
+		       (p->cmt == OnlyRight),
+		       (p->cmt == OnlyLeft),
+		       (p->cmt == Binary));
 	    printf("%s\n", name);
 	}
     } else if (names_only) {
@@ -1848,6 +1888,12 @@ show_data(const DATA * p)
 	case Only:
 	    printf("only");
 	    break;
+	case OnlyLeft:
+	    printf(count_files ? "deleted" : "only");
+	    break;
+	case OnlyRight:
+	    printf(count_files ? "added" : "only");
+	    break;
 	}
 	printf("\n");
     }
@@ -1871,6 +1917,51 @@ ignore_data(DATA * p)
 	    || (p->cmt == Binary && suppress_binary));
 }
 
+/*
+ * Return the length of any directory-prefix from the given path.
+ */
+static size_t
+path_length(const char *path)
+{
+    size_t result = 0;
+    char *mark = strrchr(path, PATHSEP);
+    if (mark != 0 && mark != path)
+	result = (size_t) (mark + 1 - path);
+    return result;
+}
+
+/*
+ * If we have an "only" filename, we can guess whether it was added or removed
+ * by looking at its directory and comparing that to other files' directories.
+ *
+ * TODO: -K -R combination is not yet supported because that relies on storing
+ * both left-/right-paths for each file; only the right-path is currently used.
+ */
+static Comment
+resolve_only(DATA * p)
+{
+    Comment result = p->cmt;
+    if (result == Only && !reverse_opt) {
+	DATA *q;
+	size_t len1 = path_length(p->name);
+	if (len1 != 0) {
+	    for (q = all_data; q; q = q->link) {
+		result = OnlyLeft;
+		if (q->cmt == Normal || q->cmt == Binary) {
+		    size_t len2 = path_length(q->name);
+		    if (len2 >= len1) {
+			if (!strncmp(p->name, q->name, len1)) {
+			    result = OnlyRight;
+			    break;
+			}
+		    }
+		}
+	    }
+	}
+    }
+    return result;
+}
+
 static void
 summarize(void)
 {
@@ -1879,6 +1970,9 @@ summarize(void)
     long total_del = 0;
     long total_mod = 0;
     long total_eql = 0;
+    long files_added = 0;
+    long files_binary = 0;
+    long files_removed = 0;
     long temp;
     int num_files = 0, shortest_name = -1, longest_name = -1;
 
@@ -1923,6 +2017,35 @@ summarize(void)
     }
 
     /*
+     * Get additional counts for files where we cannot count lines changed.
+     */
+    if (count_files) {
+	for (p = all_data; p; p = p->link) {
+	    switch (p->cmt) {
+	    case Binary:
+		files_binary++;
+		break;
+	    case Only:
+		switch (resolve_only(p)) {
+		case OnlyRight:
+		    p->cmt = OnlyRight;
+		    files_added++;
+		    break;
+		case OnlyLeft:
+		    p->cmt = OnlyLeft;
+		    files_removed++;
+		    break;
+		default:
+		    /* ignore - we could not guess */
+		    break;
+		}
+	    default:
+		break;
+	    }
+	}
+    }
+
+    /*
      * Use a separate loop after computing prefix_len so we can apply the "-S"
      * or "-D" options to find files that we can use as reference for the
      * unchanged-count.
@@ -1931,8 +2054,8 @@ summarize(void)
 	if (!ignore_data(p)) {
 	    EqlOf(p) = 0;
 	    if (reverse_opt) {
-		int save_ins = InsOf(p);
-		int save_del = DelOf(p);
+		long save_ins = InsOf(p);
+		long save_del = DelOf(p);
 		InsOf(p) = save_del;
 		DelOf(p) = save_ins;
 	    }
@@ -1981,6 +2104,8 @@ summarize(void)
 	    printf("INSERTED,DELETED,MODIFIED,");
 	    if (path_opt)
 		printf("UNCHANGED,");
+	    if (count_files && !reverse_opt)
+		printf("FILE-ADDED,FILE-DELETED,FILE-BINARY,");
 	}
 	printf("FILENAME\n");
     }
@@ -2005,6 +2130,14 @@ summarize(void)
 		printf(", %ld modification%s(!)", PLURAL(total_mod));
 	    if (total_eql && path_opt != 0)
 		printf(", %ld unchanged line%s(=)", PLURAL(total_eql));
+	    if (count_files) {
+		if (files_added)
+		    printf(", %ld file%s added", PLURAL(files_added));
+		if (files_removed)
+		    printf(", %ld file%s removed", PLURAL(files_removed));
+		if (files_binary)
+		    printf(", %ld binary file%s", PLURAL(files_binary));
+	    }
 	    (void) putchar('\n');
 	}
     }
@@ -2190,7 +2323,9 @@ usage(FILE *fp)
 	"If no filename is given on the command line, reads from standard input.",
 	"",
 	"Options:",
+	"  -b      ignore lines matching \"Binary files XXX and YYY differ\"",
 	"  -c      prefix each line with comment (#)",
+	"  -C      add SGR color escape sequences to highlight the histogram",
 #if OPT_TRACE
 	"  -d      debug - prints a lot of information",
 #endif
@@ -2199,6 +2334,7 @@ usage(FILE *fp)
 	"  -f NUM  format (0=concise, 1=normal, 2=filled, 4=values)",
 	"  -h      print this message",
 	"  -k      do not merge filenames",
+	"  -K      resolve ambiguity of \"only\" filenames",
 	"  -l      list filenames only",
 	"  -m      merge insert/delete data in chunks as modified-lines",
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
@@ -2208,6 +2344,7 @@ usage(FILE *fp)
 	"  -q      suppress the \"0 files changed\" message for empty diffs",
 	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
 	"  -R      assume patch was created with old and new files swapped",
+	"  -s      show only the summary line",
 	"  -S PATH specify location of original files, use for unchanged-count",
 	"  -t      print a table (comma-separated-values) rather than histogram",
 	"  -u      do not sort the input list",
@@ -2240,6 +2377,18 @@ getopt_helper(int argc, char *const argv[], const char *opts,
     return getopt(argc, argv, opts);
 }
 
+static int
+getopt_value(void)
+{
+    char *next = 0;
+    long value = strtol(optarg, &next, 0);
+    if (next == 0 || *next != '\0') {
+	fprintf(stderr, "expected a number, have '%s'\n", optarg);
+	exit(EXIT_FAILURE);
+    }
+    return (int) value;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -2249,7 +2398,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcCdD:e:f:hklmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
+			      "bcCdD:e:f:hkKlmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -2274,13 +2423,16 @@ main(int argc, char *argv[])
 		failed(optarg);
 	    break;
 	case 'f':
-	    format_opt = atoi(optarg);
+	    format_opt = getopt_value();
 	    break;
 	case 'h':
 	    usage(stdout);
 	    return (EXIT_SUCCESS);
 	case 'k':
 	    merge_names = 0;
+	    break;
+	case 'K':
+	    count_files = 1;
 	    break;
 	case 'l':
 	    names_only = 1;
@@ -2289,20 +2441,20 @@ main(int argc, char *argv[])
 	    merge_opt = 1;
 	    break;
 	case 'n':
-	    min_name_wide = atoi(optarg);
+	    min_name_wide = getopt_value();
 	    break;
 	case 'N':
-	    max_name_wide = atoi(optarg);
+	    max_name_wide = getopt_value();
 	    break;
 	case 'o':
 	    if (freopen(optarg, "w", stdout) == 0)
 		failed(optarg);
 	    break;
 	case 'p':
-	    prefix_opt = atoi(optarg);
+	    prefix_opt = getopt_value();
 	    break;
 	case 'r':
-	    round_opt = atoi(optarg);
+	    round_opt = getopt_value();
 	    break;
 	case 'R':
 	    reverse_opt = 1;
@@ -2330,7 +2482,7 @@ main(int argc, char *argv[])
 	    printf("diffstat version %s\n", version);
 	    return (EXIT_SUCCESS);
 	case 'w':
-	    max_width = atoi(optarg);
+	    max_width = getopt_value();
 	    break;
 	case 'q':
 	    quiet = 1;

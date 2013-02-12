@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.29 2010/07/15 22:45:54 tom Exp $
+# $Id: makefile.in,v 1.30 2013/02/10 15:53:33 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -12,6 +12,7 @@ DESTDIR		= @DESTDIR@
 prefix		= @prefix@
 exec_prefix	= @exec_prefix@
 
+datarootdir	= @datarootdir@
 bindir		= @bindir@
 mandir		= @mandir@
 
