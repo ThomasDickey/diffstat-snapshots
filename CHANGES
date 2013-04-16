@@ -1,4 +1,9 @@
--- $Id: CHANGES,v 1.81 2013/02/12 00:39:27 tom Exp $
+-- $Id: CHANGES,v 1.84 2013/04/16 00:51:32 tom Exp $
+
+2013/04/15 (diffstat 1.57)
+	+ improve treatment of binary files in ambiguous message introduced in
+	  diffutils 2.8.4, and finally corrected in 3.0 (report by Moritz
+	  Barsnick).
 
 2013/02/11 (diffstat 1.56)
 	+ add -K option which attempts to improve the annotation of "only"
@@ -13,7 +18,7 @@
 
 	+ document -d option in manpage.
 
-	+ document -b, -C, -s option in usage (patch by Tim Waugh, Red Hat
+	+ document -b, -C, -s option in usage (patch by Tim Waugh, RedHat
 	  #852770)
 
 	+ modify configure script as done for byacc in 2012/10/03, making the
@@ -299,9 +304,9 @@
 
 	+ modified to avoid buffer overflows.
 
-	+ fixes for Debian #155000 (did not handle a '-' in first content-column
-	  of a unified diff) and #170947 (option to turn the progress messages
-	  off).
+	+ fixes for Debian #155000 (did not handle a '-' in first
+	  content-column of a unified diff) and Debian #170947 (option to turn
+	  the progress messages off).
 
 	+ updated configure script using aclocal.m4 macros
 
@@ -336,7 +341,7 @@
 	  workaround for OSF1's broken sed utility.
 
 	+ Check for compressed file suffixes .Z and .gz, read uncompressed data
-	  via pipe (Debian wishlist item #53975 by ch@lathspell.westend.com).
+	  via pipe (Debian #53975 by ch@lathspell.westend.com).
 
 	+ Simplified makefile based on comments by M Sweger
 	  <mikesw@whiterose.net>
@@ -368,7 +373,7 @@
 
 	+ Handle differences from /tmp (e.g., for X11R5 patches).
 
-1995-05-06 (diffstat 1.17 Patch 3)
+1995-05-06 (diffstat 1.17, Patch 3)
 
 	+ Repost whole program to comp.sources.misc (1.17)
 

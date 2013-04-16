@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.56 2013/02/12 00:03:20 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.57 2013/04/16 00:29:29 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,10 @@ static const char *Id = "$Id: diffstat.c,v 1.56 2013/02/12 00:03:20 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		15 Apr 2013, modify to accommodate output of "diff -q", which
+ *			     tells only if the files are different.  Work
+ *			     around the equivalent ambiguous message introduced
+ *			     in diffutils 2.8.4 and finally removed for 3.0
  *		11 Feb 2013, add -K option.  Use strtol() to provide error
  *			     checking of optarg values.
  *		10 Feb 2013, document -b, -C, -s option in usage (patch by
@@ -322,7 +326,7 @@ extern int optind;
 #define FMT_VERBOSE  4
 
 typedef enum comment {
-    Normal, Only, OnlyLeft, OnlyRight, Binary
+    Normal, Only, OnlyLeft, OnlyRight, Binary, Differs, Either
 } Comment;
 
 #define MARKS 4			/* each of +, - and ! */
@@ -1186,6 +1190,7 @@ do_file(FILE *fp, const char *default_name)
     long new_dft = 0;
 
     int context = 1;
+    int either = 0;
 
     char *s;
 #if OPT_TRACE
@@ -1580,10 +1585,37 @@ do_file(FILE *fp, const char *default_name)
 	    }
 	    break;
 
+	    /* Expecting "Files XXX and YYY differ" */
+	case 'F':		/* FALL-THRU */
+	case 'f':
+	    CASE_TRACE();
+	    if ((s = match(buffer + 1, "iles ")) != 0) {
+		char *first = skip_blanks(s);
+		/* blindly assume the first filename does not contain " and " */
+		char *at_and = strstr(s, " and ");
+		s = strrchr(buffer, BLANK);
+		if ((at_and != NULL) && !strcmp(s, " differ")) {
+		    char *second = skip_blanks(at_and + 5);
+
+		    if (reverse_opt) {
+			*at_and = EOS;
+			s = first;
+		    } else {
+			*s = EOS;
+			s = second;
+		    }
+		    blip('.');
+		    finish_chunk(that);
+		    that = find_data(s);
+		    that->cmt = Either;
+		    ok = HAVE_NOTHING;
+		    either = 1;
+		}
+	    }
+	    break;
 	    /* Expecting "Binary files XXX and YYY differ" */
-	case 'B':		/* Binary */
-	    /* FALL-THRU */
-	case 'b':		/* binary */
+	case 'B':		/* FALL-THRU */
+	case 'b':
 	    CASE_TRACE();
 	    if ((s = match(buffer + 1, "inary files ")) != 0) {
 		char *first = skip_blanks(s);
@@ -1614,6 +1646,34 @@ do_file(FILE *fp, const char *default_name)
 
     finish_chunk(that);
     finish_chunk(&dummy);
+
+    if (either) {
+	int pass;
+	int fixup_diffs = 0;
+
+	for (pass = 0; pass < 2; ++pass) {
+	    DATA *p;
+	    for (p = all_data; p; p = p->link) {
+		switch (p->cmt) {
+		default:
+		    break;
+		case Normal:
+		    fixup_diffs = 1;
+		    break;
+		case Either:
+		    if (pass) {
+			if (fixup_diffs) {
+			    p->cmt = Binary;
+			} else {
+			    p->cmt = Differs;
+			}
+		    }
+		    break;
+		}
+	    }
+	}
+    }
+
     free(buffer);
     free(b_fname);
     free(b_temp1);
@@ -1884,6 +1944,9 @@ show_data(const DATA * p)
 	    break;
 	case Binary:
 	    printf("binary");
+	    break;
+	case Differs:
+	    printf("differ");
 	    break;
 	case Only:
 	    printf("only");
