@@ -1,4 +1,12 @@
--- $Id: CHANGES,v 1.84 2013/04/16 00:51:32 tom Exp $
+-- $Id: CHANGES,v 1.86 2013/10/28 23:48:13 tom Exp $
+
+2013/10/28 (diffstat 1.58)
+	+ add COPYING file (request by Dagobert Michelsen).
+	+ improved portability for cross-compiling, by supplying missing
+	  getopt function as well as improving checks for popen/pclose
+	  prototypes.
+	+ updated configure macros, e.g., for MingW and MSYS fixes.
+	+ update config.guess, config.sub
 
 2013/04/15 (diffstat 1.57)
 	+ improve treatment of binary files in ambiguous message introduced in

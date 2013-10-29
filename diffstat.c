@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.57 2013/04/16 00:29:29 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.58 2013/10/28 23:02:45 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,7 @@ static const char *Id = "$Id: diffstat.c,v 1.57 2013/04/16 00:29:29 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		28 Oct 2013, portability improvements for MinGW.
  *		15 Apr 2013, modify to accommodate output of "diff -q", which
  *			     tells only if the files are different.  Work
  *			     around the equivalent ambiguous message introduced
@@ -241,6 +242,11 @@ extern int optind;
 
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#if defined(HAVE_POPEN) && !defined(HAVE_POPEN_PROTOTYPE)
+extern FILE *popen(const char *, const char *);
+extern int pclose(FILE *);
+#endif
 
 #if !defined(EXIT_SUCCESS)
 #define EXIT_SUCCESS 0

@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.30 2013/02/10 15:53:33 tom Exp $
+# $Id: makefile.in,v 1.31 2013/10/28 23:07:47 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -34,6 +34,8 @@ LDFLAGS		= @LDFLAGS@
 
 o		= .@OBJEXT@
 x		= @EXEEXT@
+
+EXTRA_OBJS	= @EXTRA_OBJS@
 
 BINDIR		= $(DESTDIR)$(bindir)
 MANDIR		= $(DESTDIR)$(mandir)
@@ -72,8 +74,8 @@ DISTFILES =	configure config.guess config.sub $(SRC)
 
 all :	$(PROG)
 
-$(PROG) : diffstat$o
-	@ECHO_LD@$(LINK) $(LDFLAGS) -o $@ diffstat$o $(LIBS)
+$(PROG) : diffstat$o $(EXTRA_OBJS)
+	@ECHO_LD@$(LINK) $(LDFLAGS) -o $@ diffstat$o $(EXTRA_OBJS) $(LIBS)
 
 install : all installdirs
 	$(INSTALL_PROGRAM) $(PROG) $(BINDIR)/$(PROG)
@@ -143,3 +145,6 @@ dist:	makefile $(DISTFILES)
 $(THIS).o :	config.h
 
 $(SRC) :
+
+getopt.o : $(srcdir)/porting/getopt.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $(srcdir)/porting/getopt.c

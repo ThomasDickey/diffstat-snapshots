@@ -1,4 +1,4 @@
-dnl $Id: aclocal.m4,v 1.24 2013/02/10 15:43:18 tom Exp $
+dnl $Id: aclocal.m4,v 1.28 2013/10/28 23:43:23 tom Exp $
 dnl autoconf macros for 'diffstat'
 dnl
 dnl Copyright 2003-2012,2013 Thomas E. Dickey
@@ -8,7 +8,7 @@ dnl http://invisible-island.net/autoconf/
 dnl
 dnl ---------------------------------------------------------------------------
 dnl ---------------------------------------------------------------------------
-dnl CF_ACVERSION_CHECK version: 3 updated: 2012/10/03 18:39:53
+dnl CF_ACVERSION_CHECK version: 4 updated: 2013/03/04 19:52:56
 dnl ------------------
 dnl Conditionally generate script according to whether we're using a given autoconf.
 dnl
@@ -17,6 +17,7 @@ dnl $2 = code to use if AC_ACVERSION is at least as high as $1.
 dnl $3 = code to use if AC_ACVERSION is older than $1.
 define([CF_ACVERSION_CHECK],
 [
+ifdef([AC_ACVERSION], ,[m4_copy([m4_PACKAGE_VERSION],[AC_ACVERSION])])dnl
 ifdef([m4_version_compare],
 [m4_if(m4_version_compare(m4_defn([AC_ACVERSION]), [$1]), -1, [$3], [$2])],
 [CF_ACVERSION_COMPARE(
@@ -248,41 +249,6 @@ case "$CC" in #(vi
 esac
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_CHECK_CACHE version: 12 updated: 2012/10/02 20:55:03
-dnl --------------
-dnl Check if we're accidentally using a cache from a different machine.
-dnl Derive the system name, as a check for reusing the autoconf cache.
-dnl
-dnl If we've packaged config.guess and config.sub, run that (since it does a
-dnl better job than uname).  Normally we'll use AC_CANONICAL_HOST, but allow
-dnl an extra parameter that we may override, e.g., for AC_CANONICAL_SYSTEM
-dnl which is useful in cross-compiles.
-dnl
-dnl Note: we would use $ac_config_sub, but that is one of the places where
-dnl autoconf 2.5x broke compatibility with autoconf 2.13
-AC_DEFUN([CF_CHECK_CACHE],
-[
-if test -f $srcdir/config.guess || test -f $ac_aux_dir/config.guess ; then
-	ifelse([$1],,[AC_CANONICAL_HOST],[$1])
-	system_name="$host_os"
-else
-	system_name="`(uname -s -r) 2>/dev/null`"
-	if test -z "$system_name" ; then
-		system_name="`(hostname) 2>/dev/null`"
-	fi
-fi
-test -n "$system_name" && AC_DEFINE_UNQUOTED(SYSTEM_NAME,"$system_name",[Define to the system name.])
-AC_CACHE_VAL(cf_cv_system_name,[cf_cv_system_name="$system_name"])
-
-test -z "$system_name" && system_name="$cf_cv_system_name"
-test -n "$cf_cv_system_name" && AC_MSG_RESULT(Configuring for $cf_cv_system_name)
-
-if test ".$system_name" != ".$cf_cv_system_name" ; then
-	AC_MSG_RESULT(Cached system name ($system_name) does not agree with actual ($cf_cv_system_name))
-	AC_MSG_ERROR("Please remove config.cache and try again.")
-fi
-])dnl
-dnl ---------------------------------------------------------------------------
 dnl CF_CLANG_COMPILER version: 1 updated: 2012/06/16 14:55:39
 dnl -----------------
 dnl Check if the given compiler is really clang.  clang's C driver defines
@@ -375,6 +341,40 @@ if test "$with_no_leaks" = yes ; then
 	AC_DEFINE(YY_NO_LEAKS,1,[Define to 1 if you want to perform memory-leak testing.])
 fi
 ])dnl
+dnl ---------------------------------------------------------------------------
+dnl CF_FUNC_GETOPT version: 1 updated: 2013/10/28 19:42:35
+dnl --------------
+dnl Check for getopt, and optionally provide our own.
+AC_DEFUN([CF_FUNC_GETOPT],[
+CF_GETOPT_HEADER
+AC_HAVE_FUNCS(getopt)
+
+if test "x$ac_cv_func_getopt" = xno
+then
+	ifelse([$1],,:,[
+	ifelse([$2],,,[CPPFLAGS="$CPPFLAGS -I$2"])
+	EXTRA_OBJS="$EXTRA_OBJS $1.o"
+	])
+fi
+AC_SUBST(EXTRA_OBJS)
+])
+dnl ---------------------------------------------------------------------------
+dnl CF_FUNC_POPEN version: 1 updated: 2013/10/28 19:42:35
+dnl -------------
+dnl Check for popen, and optionally provide our own.
+AC_DEFUN([CF_FUNC_POPEN],[
+AC_HAVE_FUNCS(popen)
+if test "x$ac_cv_func_popen" = xno
+then
+	ifelse([$1],,:,[
+	ifelse([$2],,,[CPPFLAGS="$CPPFLAGS -I$2"])
+	EXTRA_OBJS="$EXTRA_OBJS $1.o"
+	])
+else
+	CF_POPEN_TEST
+fi
+AC_SUBST(EXTRA_OBJS)
+])
 dnl ---------------------------------------------------------------------------
 dnl CF_GCC_ATTRIBUTES version: 16 updated: 2012/10/02 20:55:03
 dnl -----------------
@@ -745,7 +745,7 @@ AC_SUBST(MAKE_UPPER_TAGS)
 AC_SUBST(MAKE_LOWER_TAGS)
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_MIXEDCASE_FILENAMES version: 4 updated: 2012/10/02 20:55:03
+dnl CF_MIXEDCASE_FILENAMES version: 6 updated: 2013/10/08 17:47:05
 dnl ----------------------
 dnl Check if the file-system supports mixed-case filenames.  If we're able to
 dnl create a lowercase name and see it as uppercase, it doesn't support that.
@@ -754,7 +754,7 @@ AC_DEFUN([CF_MIXEDCASE_FILENAMES],
 AC_CACHE_CHECK(if filesystem supports mixed-case filenames,cf_cv_mixedcase,[
 if test "$cross_compiling" = yes ; then
 	case $target_alias in #(vi
-	*-os2-emx*|*-msdosdjgpp*|*-cygwin*|*-mingw32*|*-uwin*) #(vi
+	*-os2-emx*|*-msdosdjgpp*|*-cygwin*|*-msys*|*-mingw*|*-uwin*) #(vi
 		cf_cv_mixedcase=no
 		;;
 	*)
@@ -909,6 +909,32 @@ case ".[$]$1" in #(vi
 esac
 ])dnl
 dnl ---------------------------------------------------------------------------
+dnl CF_POPEN_TEST version: 4 updated: 2013/10/25 18:24:56
+dnl -------------
+dnl	Check to ensure that our prototype for 'popen()' doesn't conflict
+dnl	with the system's (this is a problem on AIX and CLIX).
+dnl
+AC_DEFUN([CF_POPEN_TEST],
+[AC_MSG_CHECKING(for conflicting prototype for popen)
+AC_CACHE_VAL(ac_cv_td_popen,
+AC_TRY_LINK([
+#include <stdio.h>
+#include "system.h"
+#if defined(popen) || defined(pclose)
+make an error
+#else
+extern int pclose (FILE *p);
+extern FILE *popen (const char *c, const char *m);
+#endif
+],,
+ac_cv_td_popen=no,
+ac_cv_td_popen=yes))
+AC_MSG_RESULT($ac_cv_td_popen)
+if test $ac_cv_td_popen = yes; then
+	AC_DEFINE(HAVE_POPEN_PROTOTYPE)
+fi
+])dnl
+dnl ---------------------------------------------------------------------------
 dnl CF_POSIX_C_SOURCE version: 8 updated: 2010/05/26 05:38:42
 dnl -----------------
 dnl Define _POSIX_C_SOURCE to the given level, and _POSIX_SOURCE if needed.
@@ -993,31 +1019,6 @@ CF_ACVERSION_CHECK(2.52,
 	[AC_PROG_CC_STDC],
 	[CF_ANSI_CC_REQD])
 CF_CC_ENV_FLAGS 
-])dnl
-dnl ---------------------------------------------------------------------------
-dnl CF_PROG_CC_U_D version: 1 updated: 2005/07/14 16:59:30
-dnl --------------
-dnl Check if C (preprocessor) -U and -D options are processed in the order
-dnl given rather than by type of option.  Some compilers insist on apply all
-dnl of the -U options after all of the -D options.  Others allow mixing them,
-dnl and may predefine symbols that conflict with those we define.
-AC_DEFUN([CF_PROG_CC_U_D],
-[
-AC_CACHE_CHECK(if $CC -U and -D options work together,cf_cv_cc_u_d_options,[
-	cf_save_CPPFLAGS="$CPPFLAGS"
-	CPPFLAGS="-UU_D_OPTIONS -DU_D_OPTIONS -DD_U_OPTIONS -UD_U_OPTIONS"
-	AC_TRY_COMPILE([],[
-#ifndef U_D_OPTIONS
-make an undefined-error
-#endif
-#ifdef  D_U_OPTIONS
-make a defined-error
-#endif
-	],[
-	cf_cv_cc_u_d_options=yes],[
-	cf_cv_cc_u_d_options=no])
-	CPPFLAGS="$cf_save_CPPFLAGS"
-])
 ])dnl
 dnl ---------------------------------------------------------------------------
 dnl CF_PROG_LINT version: 2 updated: 2009/08/12 04:43:14
@@ -1183,16 +1184,6 @@ fi
 AC_SUBST(DESTDIR)
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_WITH_PURIFY version: 2 updated: 2006/12/14 18:43:43
-dnl --------------
-AC_DEFUN([CF_WITH_PURIFY],[
-CF_NO_LEAKS_OPTION(purify,
-	[  --with-purify           test: use Purify],
-	[USE_PURIFY],
-	[LINK_PREFIX="$LINK_PREFIX purify"])
-AC_SUBST(LINK_PREFIX)
-])dnl
-dnl ---------------------------------------------------------------------------
 dnl CF_WITH_VALGRIND version: 1 updated: 2006/12/14 18:00:21
 dnl ----------------
 AC_DEFUN([CF_WITH_VALGRIND],[
@@ -1224,7 +1215,7 @@ fi
 fi
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_XOPEN_SOURCE version: 43 updated: 2013/02/10 10:41:05
+dnl CF_XOPEN_SOURCE version: 45 updated: 2013/09/07 14:06:25
 dnl ---------------
 dnl Try to get _XOPEN_SOURCE defined properly that we can use POSIX functions,
 dnl or adapt to the vendor's definitions to get equivalent functionality,
@@ -1244,7 +1235,7 @@ case $host_os in #(vi
 aix[[4-7]]*) #(vi
 	cf_xopen_source="-D_ALL_SOURCE"
 	;;
-cygwin) #(vi
+cygwin|msys) #(vi
 	cf_XOPEN_SOURCE=600
 	;;
 darwin[[0-8]].*) #(vi
