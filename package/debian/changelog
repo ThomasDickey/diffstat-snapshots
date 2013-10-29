@@ -1,3 +1,9 @@
+diffstat (1.58) unstable; urgency=low
+
+  * maintenance updates
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Mon, 28 Oct 2013 17:40:54 -0400
+
 diffstat (1.57) unstable; urgency=low
 
   * fix for diff 2.8.4 "Binary" message
