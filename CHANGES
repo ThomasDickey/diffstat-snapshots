@@ -1,4 +1,9 @@
--- $Id: CHANGES,v 1.86 2013/10/28 23:48:13 tom Exp $
+-- $Id: CHANGES,v 1.87 2014/01/11 12:55:03 tom Exp $
+
+2014/??/?? (diffstat 1.59)
+	+ added "docs" rule to makefile
+	+ added check for -Wlogical-op to gcc warnings
+	+ update config.guess, config.sub
 
 2013/10/28 (diffstat 1.58)
 	+ add COPYING file (request by Dagobert Michelsen).
