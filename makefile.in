@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.32 2014/01/11 12:58:53 tom Exp $
+# $Id: makefile.in,v 1.33 2014/06/04 22:29:29 openembedded.org Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -82,7 +82,7 @@ install : all installdirs
 	$(INSTALL_DATA) $(srcdir)/$(THIS).1 $(man1dir)/$(THIS).$(manext)
 
 installdirs :
-	mkdir -p $(BINDIR) $(libdir) $(man1dir)
+	mkdir -p $(BINDIR) $(man1dir)
 
 uninstall :
 	rm -f $(BINDIR)/$(PROG) $(man1dir)/$(THIS).$(manext)
