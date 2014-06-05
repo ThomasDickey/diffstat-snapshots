@@ -1,8 +1,16 @@
--- $Id: CHANGES,v 1.87 2014/01/11 12:55:03 tom Exp $
+-- $Id: CHANGES,v 1.89 2014/06/04 23:17:06 tom Exp $
 
 2014/??/?? (diffstat 1.59)
+	+ merge/adapt improvments to makefile and configure script from
+	  openembedded.org (forwarded by Ross Burton).
+	  + remove unused $(libdir) from makefile "installdirs" target
+	  + amend definition in CF_POPEN_TEST to permit use of autoheader.
+	  + workaround for gratuitous renaming of AC_ACVERSION in 2.69
 	+ added "docs" rule to makefile
-	+ added check for -Wlogical-op to gcc warnings
+	+ improvements to configure macros:
+	  + added check for -Wlogical-op to gcc warnings
+	  + suppress check for defining _XOPEN_SOURCE on Solaris
+	  + trim an unwanted -no-gcc option for Intel compiler
 	+ update config.guess, config.sub
 
 2013/10/28 (diffstat 1.58)
