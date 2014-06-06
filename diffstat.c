@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2012,2013 by Thomas E. Dickey                               *
+ * Copyright 1994-2013,2014 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.58 2013/10/28 23:02:45 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.59 2014/06/05 21:07:34 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,7 @@ static const char *Id = "$Id: diffstat.c,v 1.58 2013/10/28 23:02:45 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		05 Jun 2014, add -E option to filter colordiff output.
  *		28 Oct 2013, portability improvements for MinGW.
  *		15 Apr 2013, modify to accommodate output of "diff -q", which
  *			     tells only if the files are different.  Work
@@ -402,6 +403,7 @@ static int show_progress;	/* if not writing to tty, show progress */
 static int sort_names = 1;	/* true if we sort filenames */
 static int summary_only = 0;	/* true if only summary line is shown */
 static int suppress_binary = 0;	/* -b option */
+static int trim_escapes = 0;	/* -E option */
 static int table_opt = 0;	/* if nonzero, write table rather than plot */
 static int trace_opt = 0;	/* if nonzero, write debugging information */
 static int verbose = 0;		/* -v option */
@@ -1231,6 +1233,30 @@ do_file(FILE *fp, const char *default_name)
 		s[-1] = EOS;
 	    else
 		break;
+	}
+
+	/*
+	 * Trim escapes from colordiff.
+	 */
+#define isFINAL(c) (UC(*s) >= '\140' && UC(*s) <= '\176')
+	if (trim_escapes && (strchr(buffer, '\033') != 0)) {
+	    char *d = buffer;
+	    s = d;
+	    while (*s != '\0') {
+		if (*s == '\033') {
+		    while (*s != '\0' && !isFINAL(*s)) {
+			++s;
+		    }
+		    if (*s != '\0') {
+			++s;
+			continue;
+		    } else {
+			break;
+		    }
+		}
+		*d++ = *s++;
+	    }
+	    *d = '\0';
 	}
 	++line_no;
 	TRACE(("[%05d] %s\n", line_no, buffer));
@@ -2400,6 +2426,7 @@ usage(FILE *fp)
 #endif
 	"  -D PATH specify location of patched files, use for unchanged-count",
 	"  -e FILE redirect standard error to FILE",
+	"  -E      trim escape-sequences, e.g., from colordiff",
 	"  -f NUM  format (0=concise, 1=normal, 2=filled, 4=values)",
 	"  -h      print this message",
 	"  -k      do not merge filenames",
@@ -2467,7 +2494,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcCdD:e:f:hkKlmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
+			      "bcCdD:e:Ef:hkKlmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -2490,6 +2517,9 @@ main(int argc, char *argv[])
 	case 'e':
 	    if (freopen(optarg, "w", stderr) == 0)
 		failed(optarg);
+	    break;
+	case 'E':
+	    trim_escapes = 1;
 	    break;
 	case 'f':
 	    format_opt = getopt_value();
