@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.33 2014/06/04 22:29:29 openembedded.org Exp $
+# $Id: makefile.in,v 1.34 2015/07/06 23:23:30 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -94,7 +94,7 @@ clean :: mostlyclean
 	rm -f $(PROG)
 
 distclean :: clean
-	rm -f makefile config.log config.cache config.status config.h
+	rm -f makefile config.log config.cache config.status config.h man2html.tmp
 	rm -f tags TAGS # don't remove configure!
 
 realclean :: distclean

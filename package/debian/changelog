@@ -1,3 +1,9 @@
+diffstat (1.60) unstable; urgency=low
+
+  * handle quoted files from diffutils 3.3
+
+ -- Thomas E. Dickey <dickey@invisible-island.net>  Mon, 06 Jul 2015 19:27:58 -0400
+
 diffstat (1.59) unstable; urgency=low
 
   * maintenance updates
