@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2013,2014 by Thomas E. Dickey                               *
+ * Copyright 1994-2014,2015 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.59 2014/06/05 21:07:34 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.60 2015/07/07 00:21:23 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.59 2014/06/05 21:07:34 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		06 Jul 2015, handle double-quotes, e.g., from diffutils 3.3
+ *			     when filenames have embedded spaces.
  *		05 Jun 2014, add -E option to filter colordiff output.
  *		28 Oct 2013, portability improvements for MinGW.
  *		15 Apr 2013, modify to accommodate output of "diff -q", which
@@ -304,6 +306,7 @@ extern int pclose(FILE *);
 #define PATHSEP '/'
 #endif
 
+#define DQUOTE  '"'
 #define SQUOTE  '\''
 #define EOS     '\0'
 #define BLANK   ' '
@@ -964,9 +967,11 @@ skip_blanks(char *s)
 static char *
 skip_filename(char *s)
 {
-    if (*s == SQUOTE && s[1] != EOS && strchr(s + 1, SQUOTE)) {
+    int delim = (*s == SQUOTE) ? SQUOTE : DQUOTE;
+
+    if ((*s == delim) && (s[1] != EOS) && (strchr) (s + 1, delim) != 0) {
 	++s;
-	while (*s != EOS && (*s != SQUOTE) && isgraph(UC(*s))) {
+	while (*s != EOS && (*s != delim) && isprint(UC(*s))) {
 	    ++s;
 	}
 	++s;
@@ -1001,8 +1006,9 @@ dequote(char *s)
 {
     size_t len = strlen(s);
     int n;
+    int delim = (*s == SQUOTE) ? SQUOTE : DQUOTE;
 
-    if (*s == SQUOTE && len > 2 && s[len - 1] == SQUOTE) {
+    if (*s == delim && len > 2 && s[len - 1] == delim) {
 	for (n = 0; (s[n] = s[n + 1]) != EOS; ++n) {
 	    ;
 	}
@@ -1542,6 +1548,7 @@ do_file(FILE *fp, const char *default_name)
 		    ) {
 		    prev = that;
 		    finish_chunk(that);
+		    dequote(b_fname);
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
@@ -1574,6 +1581,7 @@ do_file(FILE *fp, const char *default_name)
 		    TRACE(("** found p4-diff\n"));
 		    prev = that;
 		    finish_chunk(that);
+		    dequote(b_fname);
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
