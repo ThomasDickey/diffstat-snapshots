@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2014,2015 by Thomas E. Dickey                               *
+ * Copyright 1994-2015,2016 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.60 2015/07/07 00:21:23 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.61 2016/01/14 00:52:29 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.60 2015/07/07 00:21:23 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		14 Jan 2016, extend -S option to count unmodified files.
+ *			     add -T option to show values with histogram
  *		06 Jul 2015, handle double-quotes, e.g., from diffutils 3.3
  *			     when filenames have embedded spaces.
  *		05 Jun 2014, add -E option to filter colordiff output.
@@ -219,6 +221,10 @@ extern int atoi(const char *);
 extern int isatty(int);
 #endif
 
+#ifdef HAVE_OPENDIR
+#include <dirent.h>
+#endif
+
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
 #endif
@@ -324,6 +330,7 @@ extern int pclose(FILE *);
 #endif
 
 #define contain_any(s,reject) (strcspn(s,reject) != strlen(s))
+#define maximum(a,b) ((a) < (b) ? (b) : (a))
 
 #define HAVE_NOTHING 0
 #define HAVE_GENERIC 1		/* e.g., "Index: foo" w/o pathname */
@@ -407,8 +414,9 @@ static int sort_names = 1;	/* true if we sort filenames */
 static int summary_only = 0;	/* true if only summary line is shown */
 static int suppress_binary = 0;	/* -b option */
 static int trim_escapes = 0;	/* -E option */
-static int table_opt = 0;	/* if nonzero, write table rather than plot */
+static int table_opt = 0;	/* if 1/2, write table instead/also plot */
 static int trace_opt = 0;	/* if nonzero, write debugging information */
+static int unchanged = 0;	/* special-case for -S vs modified-files */
 static int verbose = 0;		/* -v option */
 static long plot_scale;		/* the effective scale (1:maximum) */
 
@@ -417,6 +425,7 @@ static int use_tsearch;
 static void *sorted_data;
 #endif
 
+static int number_len = 5;
 static int prefix_len = -1;
 
 /******************************************************************************/
@@ -442,12 +451,29 @@ xmalloc(size_t s)
     return p;
 }
 
+static mode_t
+get_stat(const char *name)
+{
+    struct stat sb;
+    int rc;
+#ifdef HAVE_LSTAT
+    rc = lstat(name, &sb);
+#else
+    rc = stat(name, &sb);
+#endif
+    return ((rc == 0) ? (sb.st_mode & S_IFMT) : 0);
+}
+
 static int
 is_dir(const char *name)
 {
-    struct stat sb;
-    return (stat(name, &sb) == 0 &&
-	    (sb.st_mode & S_IFMT) == S_IFDIR);
+    return get_stat(name) == S_IFDIR;
+}
+
+static int
+is_file(const char *name)
+{
+    return get_stat(name) == S_IFREG;
 }
 
 static void
@@ -515,6 +541,38 @@ add_tsearch_data(const char *name, int base)
 }
 #endif
 
+static int
+count_prefix(const char *name)
+{
+    int count = 0;
+    const char *s;
+    while ((s = strchr(name, PATHSEP)) != 0) {
+	name = s + 1;
+	++count;
+    }
+    return count;
+}
+
+static const char *
+skip_prefix(const char *name, int prefix, int *base)
+{
+    if (prefix >= 0) {
+	int n;
+	*base = 0;
+
+	for (n = prefix; n > 0; n--) {
+	    const char *s = strchr(name + *base, PATHSEP);
+	    if (s == 0 || *++s == EOS) {
+		name = s;
+		break;
+	    }
+	    *base = (int) (s - name);
+	}
+	TRACE(("** base set to %d\n", *base));
+    }
+    return name;
+}
+
 static DATA *
 find_data(const char *name)
 {
@@ -526,15 +584,7 @@ find_data(const char *name)
 
     /* Compute the base offset if the prefix option is used */
     if (prefix_opt >= 0) {
-	int n;
-
-	for (n = prefix_opt; n > 0; n--) {
-	    char *s = strchr(name + base, PATHSEP);
-	    if (s == 0 || *++s == EOS)
-		break;
-	    base = (int) (s - name);
-	}
-	TRACE(("** base set to %d\n", base));
+	(void) skip_prefix(name, prefix_opt, &base);
     }
 
     /* Insert into sorted list (usually sorted).  If we are not sorting or
@@ -1060,7 +1110,29 @@ get_line(char **buffer, size_t *have, FILE *fp)
 static char *
 data_filename(const DATA * p)
 {
-    return (p->name + (prefix_opt >= 0 ? p->base : prefix_len));
+    return p ? (p->name + (prefix_opt >= 0 ? p->base : prefix_len)) : "";
+}
+
+static int
+count_lines2(const char *filename)
+{
+    int result = 0;
+    int ch;
+    FILE *fp;
+
+    TRACE(("count_lines %s\n", filename));
+    if ((fp = fopen(filename, "r")) != 0) {
+	result = 0;
+	while ((ch = MY_GETC(fp)) != EOF) {
+	    if (ch == '\n')
+		++result;
+	}
+	fclose(fp);
+	TRACE(("->%d lines\n", result));
+    } else {
+	fprintf(stderr, "Cannot open \"%s\"\n", filename);
+    }
+    return result;
 }
 
 /*
@@ -1072,9 +1144,7 @@ count_lines(DATA * p)
     int result = -1;
     char *filename = 0;
     char *filetail = data_filename(p);
-    size_t want = strlen(path_opt) + 2 + strlen(filetail);
-    FILE *fp;
-    int ch;
+    size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->name);
 
     if ((filename = malloc(want)) != 0) {
 	int merge = 0;
@@ -1108,20 +1178,14 @@ count_lines(DATA * p)
 	    }
 	}
 	if (!merge) {
-	    sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
+	    if (path_opt) {
+		strcpy(filename, p->name);
+	    } else {
+		sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
+	    }
 	}
 
-	TRACE(("count_lines %s\n", filename));
-	if ((fp = fopen(filename, "r")) != 0) {
-	    result = 0;
-	    while ((ch = MY_GETC(fp)) != EOF) {
-		if (ch == '\n')
-		    ++result;
-	    }
-	    fclose(fp);
-	} else {
-	    fprintf(stderr, "Cannot open %s\n", filename);
-	}
+	result = count_lines2(filename);
 	free(filename);
     } else {
 	failed("count_lines");
@@ -1945,7 +2009,7 @@ show_data(const DATA * p)
 	;
     } else if (p->cmt == Binary && suppress_binary == 1) {
 	;
-    } else if (table_opt) {
+    } else if (table_opt == 1) {
 	if (names_only) {
 	    printf("%s\n", name);
 	} else {
@@ -1975,6 +2039,14 @@ show_data(const DATA * p)
 		     ? max_name_wide
 		     : min_name_wide);
 	    printf("%-*.*s", width, width, name);
+	}
+	if (table_opt == 2) {
+	    putchar('|');
+	    if (path_opt)
+		printf("%*ld ", number_len, EqlOf(p));
+	    printf("%*ld ", number_len, InsOf(p));
+	    printf("%*ld ", number_len, DelOf(p));
+	    printf("%*ld", number_len, ModOf(p));
 	}
 	putchar('|');
 	switch (p->cmt) {
@@ -2065,6 +2137,97 @@ resolve_only(DATA * p)
     return result;
 }
 
+#ifdef HAVE_OPENDIR
+static void
+count_unmodified_files(const char *pathname, long *files, long *lines)
+{
+    DATA *p;
+    char *name;
+
+    TRACE(("count_unmodified_files %s\n", pathname));
+    if (is_dir(pathname)) {
+	DIR *dp = opendir(pathname);
+	struct dirent *de;
+
+	if (dp != 0) {
+	    while ((de = readdir(dp)) != 0) {
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+		    continue;
+		name = malloc(strlen(pathname) + 2 + strlen(de->d_name));
+		if (name != 0) {
+		    sprintf(name, "%s%c%s", pathname, PATHSEP, de->d_name);
+		    count_unmodified_files(name, files, lines);
+		    free(name);
+		}
+	    }
+	    closedir(dp);
+	}
+    } else if (is_file(pathname)) {
+	/*
+	 * Given the pathname from the (-S) source directory, derive a
+	 * corresponding path for the destination directory.  Then check if
+	 * that path appears in the list of modified files.
+	 */
+	int found = 0;
+	const char *ref_name = (all_data ? all_data->name : pathname);
+
+	if (prefix_opt >= 0) {
+	    int level_s = count_prefix(path_opt);
+	    int base_s = 0;
+	    int base_d = 0;
+	    (void) skip_prefix(pathname, level_s + 1, &base_s);
+	    (void) skip_prefix(ref_name, level_s + 1, &base_d);
+	    name = malloc(2 + strlen(pathname) + strlen(ref_name));
+	    sprintf(name, "%.*s%s", base_d, ref_name, base_s + pathname);
+	} else {
+	    const char *mark = unchanged ? ref_name : data_filename(all_data);
+	    int skip = 1 + (int) strlen(path_opt);
+	    name = malloc(strlen(ref_name) + 2 + strlen(pathname));
+	    sprintf(name, "%.*s%s",
+		    (int) (mark - ref_name),
+		    ref_name,
+		    pathname + skip);
+	}
+	if (is_file(name)) {
+	    for (p = all_data; p != 0 && !found; p = p->link) {
+		if (!strcmp(name, p->name)) {
+		    found = 1;
+		}
+	    }
+	    if (!found) {
+		int len;
+		p = find_data(name);
+		*files += 1;
+		EqlOf(p) = count_lines(p);
+		*lines += EqlOf(p);
+
+		if (unchanged) {
+		    len = (int) strlen(p->name);
+		    if (min_name_wide < (len - p->base))
+			min_name_wide = (len - p->base);
+		}
+	    }
+	}
+	free(name);
+    }
+}
+#endif
+
+static void
+update_min_name_wide(long longest_name)
+{
+    if (prefix_opt < 0) {
+	if (prefix_len < 0)
+	    prefix_len = 0;
+	if ((longest_name - prefix_len) > min_name_wide)
+	    min_name_wide = (longest_name - prefix_len);
+    }
+
+    if (min_name_wide < 1)
+	min_name_wide = 0;
+    min_name_wide++;		/* make sure it's nonzero */
+}
+
 static void
 summarize(void)
 {
@@ -2074,6 +2237,7 @@ summarize(void)
     long total_mod = 0;
     long total_eql = 0;
     long files_added = 0;
+    long files_equal = 0;
     long files_binary = 0;
     long files_removed = 0;
     long temp;
@@ -2187,14 +2351,26 @@ summarize(void)
 	}
     }
 
-    if (prefix_opt < 0) {
-	if (prefix_len < 0)
-	    prefix_len = 0;
-	if ((longest_name - prefix_len) > min_name_wide)
-	    min_name_wide = (longest_name - prefix_len);
-    }
+    update_min_name_wide(longest_name);
 
-    min_name_wide++;		/* make sure it's nonzero */
+#ifdef HAVE_OPENDIR
+    if (path_opt != 0) {
+	unchanged = (all_data == 0);
+	count_unmodified_files(path_opt, &files_equal, &total_eql);
+	if (unchanged) {
+	    for (p = all_data; p; p = p->link) {
+		int len = (int) strlen(p->name);
+		if (longest_name < len)
+		    longest_name = len;
+		temp = TotalOf(p);
+		if (temp > plot_scale)
+		    plot_scale = temp;
+	    }
+	    update_min_name_wide(longest_name);
+	}
+    }
+#endif
+
     plot_width = (max_width - min_name_wide - 8);
     if (plot_width < 10)
 	plot_width = 10;
@@ -2202,7 +2378,7 @@ summarize(void)
     if (plot_scale < plot_width)
 	plot_scale = plot_width;	/* 1:1 */
 
-    if (table_opt) {
+    if (table_opt == 1) {
 	if (!names_only) {
 	    printf("INSERTED,DELETED,MODIFIED,");
 	    if (path_opt)
@@ -2211,6 +2387,21 @@ summarize(void)
 		printf("FILE-ADDED,FILE-DELETED,FILE-BINARY,");
 	}
 	printf("FILENAME\n");
+    } else if (table_opt == 2) {
+	long largest = 0;
+	for (p = all_data; p; p = p->link) {
+	    if (path_opt)
+		largest = maximum(largest, EqlOf(p));
+	    largest = maximum(largest, InsOf(p));
+	    largest = maximum(largest, DelOf(p));
+	    largest = maximum(largest, ModOf(p));
+	}
+	number_len = 0;
+	while (largest > 0) {
+	    number_len++;
+	    largest /= 10;
+	}
+	number_len = maximum(number_len, 3);
     }
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
@@ -2221,7 +2412,7 @@ summarize(void)
 	    show_data(p);
 	}
 
-    if (!table_opt && !names_only) {
+    if ((table_opt != 1) && !names_only) {
 #define PLURAL(n) n, n != 1 ? "s" : ""
 	if (num_files > 0 || !quiet) {
 	    printf("%s %d file%s changed", comment_opt, PLURAL(num_files));
@@ -2451,6 +2642,7 @@ usage(FILE *fp)
 	"  -s      show only the summary line",
 	"  -S PATH specify location of original files, use for unchanged-count",
 	"  -t      print a table (comma-separated-values) rather than histogram",
+	"  -T      print amounts (like -t option) in addition to histogram",
 	"  -u      do not sort the input list",
 	"  -v      show progress if output is redirected to a file",
 	"  -V      prints the version number",
@@ -2502,7 +2694,7 @@ main(int argc, char *argv[])
     max_width = 80;
 
     while ((j = getopt_helper(argc, argv,
-			      "bcCdD:e:Ef:hkKlmn:N:o:p:qr:RsS:tuvVw:", 'h', 'V'))
+			      "bcCdD:e:Ef:hkKlmn:N:o:p:qr:RsS:tTuvVw:", 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -2574,6 +2766,9 @@ main(int argc, char *argv[])
 	    break;
 	case 't':
 	    table_opt = 1;
+	    break;
+	case 'T':
+	    table_opt = 2;
 	    break;
 	case 'u':
 	    sort_names = 0;
