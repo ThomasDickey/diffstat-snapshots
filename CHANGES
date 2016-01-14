@@ -1,6 +1,19 @@
--- $Id: CHANGES,v 1.91 2015/07/06 23:21:00 tom Exp $
+-- $Id: CHANGES,v 1.94 2016/01/14 01:11:58 tom Exp $
+
+2016/01/14 (diffstat 1.61)
+	+ add -T option to show amount of changes next to histogram.
+
+	+ if -S option is given, check for unmodified files and add those to
+	  the report.
+
+	+ update configure macros
+
+	+ update config.guess, config.sub
 
 2015/07/07 (diffstat 1.60)
+	+ handle double-quotes, e.g., from diffutils 3.3 when filenames have
+	  embedded spaces.
+
 	+ add configure option --with-man2html
 
 	+ update configure macros
