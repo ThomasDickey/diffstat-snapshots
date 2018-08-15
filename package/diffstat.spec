@@ -1,7 +1,7 @@
 Summary:  diffstat - make histogram from diff-output
 %define AppProgram diffstat
-%define AppVersion 1.61
-# $XTermId: diffstat.spec,v 1.10 2016/01/06 00:51:23 tom Exp $
+%define AppVersion 1.62
+# $XTermId: diffstat.spec,v 1.13 2018/08/15 00:35:51 tom Exp $
 Name: %{AppProgram}
 Version: %{AppVersion}
 Release: 1
@@ -25,12 +25,12 @@ of the total lines changed for each file referenced.
 %build
 
 INSTALL_PROGRAM='${INSTALL}' \
-	./configure \
-		--target %{_target_platform} \
-		--prefix=%{_prefix} \
-		--bindir=%{_bindir} \
-		--libdir=%{_libdir} \
-		--mandir=%{_mandir}
+%configure \
+  --target %{_target_platform} \
+  --prefix=%{_prefix} \
+  --bindir=%{_bindir} \
+  --libdir=%{_libdir} \
+  --mandir=%{_mandir}
 
 make
 
@@ -51,6 +51,9 @@ strip $RPM_BUILD_ROOT%{_bindir}/%{AppProgram}
 
 %changelog
 # each patch should add its ChangeLog entries here
+
+* Wed Aug 15 2018 Thomas Dickey
+- use recommended compiler-flags
 
 * Thu Jul 15 2010 Thomas Dickey
 - initial version

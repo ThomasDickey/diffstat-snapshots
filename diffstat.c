@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2015,2016 by Thomas E. Dickey                               *
+ * Copyright 1994-2016,2018 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.61 2016/01/14 00:52:29 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.62 2018/08/15 01:26:54 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.61 2016/01/14 00:52:29 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		14 Aug 2018, revise -S/-D option to improve count of unmodified
+ *			     files.
  *		14 Jan 2016, extend -S option to count unmodified files.
  *			     add -T option to show values with histogram
  *		06 Jul 2015, handle double-quotes, e.g., from diffutils 3.3
@@ -391,6 +393,8 @@ static const int colors[MARKS + 1] =
 {2, 1, 6, 4};
 
 static DATA *all_data;
+static char *S_option = 0;
+static char *D_option = 0;
 static const char *comment_opt = "";
 static char *path_opt = 0;
 static int count_files;		/* true if we count added/deleted files */
@@ -451,16 +455,27 @@ xmalloc(size_t s)
     return p;
 }
 
+static int
+do_stat(const char *name, struct stat *sb)
+{
+    int rc;
+    if (name != 0) {
+#ifdef HAVE_LSTAT
+	rc = lstat(name, sb);
+#else
+	rc = stat(name, sb);
+#endif
+    } else {
+	rc = -1;
+    }
+    return rc;
+}
+
 static mode_t
 get_stat(const char *name)
 {
     struct stat sb;
-    int rc;
-#ifdef HAVE_LSTAT
-    rc = lstat(name, &sb);
-#else
-    rc = stat(name, &sb);
-#endif
+    int rc = do_stat(name, &sb);
     return ((rc == 0) ? (sb.st_mode & S_IFMT) : 0);
 }
 
@@ -476,10 +491,50 @@ is_file(const char *name)
     return get_stat(name) == S_IFREG;
 }
 
+static int
+same_file(const char *source, const char *target)
+{
+    int rc = 0;
+    struct stat ssb;
+    struct stat dsb;
+
+    if (do_stat(source, &ssb) == 0 && S_ISREG(ssb.st_mode)
+	&& do_stat(target, &dsb) == 0 && S_ISREG(dsb.st_mode)
+	&& ssb.st_size == dsb.st_size) {
+	FILE *ip = fopen(source, "r");
+	if (ip != 0) {
+	    FILE *op = fopen(target, "r");
+	    if (op != 0) {
+		int a = EOF;
+		int b = EOF;
+		rc = 1;
+		while (1) {
+		    a = fgetc(ip);
+		    b = fgetc(op);
+		    if (a != b) {
+			rc = 0;
+			break;
+		    }
+		    if (a == EOF) {
+			break;
+		    }
+		}
+		if (a != b) {
+		    rc = 0;
+		}
+		fclose(op);
+	    }
+	    fclose(ip);
+	}
+    }
+    return rc;
+}
+
 static void
 blip(int c)
 {
     if (show_progress) {
+	(void) fflush(stdout);
 	(void) fputc(c, stderr);
 	(void) fflush(stderr);
     }
@@ -576,7 +631,7 @@ skip_prefix(const char *name, int prefix, int *base)
 static DATA *
 find_data(const char *name)
 {
-    DATA *p, *q, *r;
+    DATA *p, *r;
     DATA find;
     int base = 0;
 
@@ -601,6 +656,8 @@ find_data(const char *name)
     } else
 #endif
     {
+	DATA *q;
+
 	init_data(&find, name, 1, base);
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	    int cmp = compare_data(p, &find);
@@ -879,7 +936,6 @@ do_merging(DATA * data, char *path, int *freed)
 		   && can_be_merged(source)) {
 	    size_t len1 = strlen(target);
 	    size_t len2 = strlen(source);
-	    int matched = 0;
 	    int local = 0;
 
 	    /*
@@ -915,6 +971,7 @@ do_merging(DATA * data, char *path, int *freed)
 	     * stripping prefixes from both source/target strings.
 	     */
 	    if (prefix_opt < 0) {
+		int matched = 0;
 		/*
 		 * Now (whether or not we trimmed a suffix), scan back from the
 		 * end of source/target strings to find if they happen to share
@@ -1055,10 +1112,11 @@ static void
 dequote(char *s)
 {
     size_t len = strlen(s);
-    int n;
     int delim = (*s == SQUOTE) ? SQUOTE : DQUOTE;
 
     if (*s == delim && len > 2 && s[len - 1] == delim) {
+	int n;
+
 	for (n = 0; (s[n] = s[n + 1]) != EOS; ++n) {
 	    ;
 	}
@@ -1107,7 +1165,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
     return (used != 0);
 }
 
-static char *
+static const char *
 data_filename(const DATA * p)
 {
     return p ? (p->name + (prefix_opt >= 0 ? p->base : prefix_len)) : "";
@@ -1117,19 +1175,22 @@ static int
 count_lines2(const char *filename)
 {
     int result = 0;
-    int ch;
     FILE *fp;
 
-    TRACE(("count_lines %s\n", filename));
+    TRACE(("count_lines \"%s\"\n", filename));
+
     if ((fp = fopen(filename, "r")) != 0) {
+	int ch;
+
 	result = 0;
 	while ((ch = MY_GETC(fp)) != EOF) {
 	    if (ch == '\n')
 		++result;
 	}
-	fclose(fp);
+	(void) fclose(fp);
 	TRACE(("->%d lines\n", result));
     } else {
+	(void) fflush(stdout);
 	fprintf(stderr, "Cannot open \"%s\"\n", filename);
     }
     return result;
@@ -1143,7 +1204,7 @@ count_lines(DATA * p)
 {
     int result = -1;
     char *filename = 0;
-    char *filetail = data_filename(p);
+    const char *filetail = data_filename(p);
     size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->name);
 
     if ((filename = malloc(want)) != 0) {
@@ -1151,11 +1212,10 @@ count_lines(DATA * p)
 
 	if (path_dest) {
 	    size_t path_len = strlen(path_opt);
-	    size_t tail_len;
 	    char *tail_sep = strchr(filetail, PATHSEP);
 
 	    if (tail_sep != 0) {
-		tail_len = (size_t) (tail_sep - filetail);
+		size_t tail_len = (size_t) (tail_sep - filetail);
 		if (tail_len != 0 && tail_len <= path_len) {
 		    if (tail_len < path_len
 			&& path_opt[path_len - tail_len - 1] != PATHSEP) {
@@ -1178,7 +1238,7 @@ count_lines(DATA * p)
 	    }
 	}
 	if (!merge) {
-	    if (path_opt) {
+	    if (!path_opt) {
 		strcpy(filename, p->name);
 	    } else {
 		sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
@@ -1207,9 +1267,9 @@ update_chunk(DATA * p, Change change)
 static void
 finish_chunk(DATA * p)
 {
-    int i;
-
     if (p->pending) {
+	int i;
+
 	p->pending = 0;
 	p->chunks += 1;
 	if (merge_opt) {
@@ -1387,7 +1447,7 @@ do_file(FILE *fp, const char *default_name)
 		char test_at;
 
 		old_unify = new_unify = 0;
-		if (sscanf(buffer, "@@ -%[0-9,] +%[0-9,] @%c",
+		if (sscanf(buffer, "@@ -%80[0-9,] +%80[0-9,] @%c",
 			   b_temp1,
 			   b_temp2,
 			   &test_at) == 3
@@ -1493,7 +1553,7 @@ do_file(FILE *fp, const char *default_name)
 	 */
 	if (marker > 0) {
 	    TRACE(("** have marker=%d, override %s\n", marker, buffer));
-	    (void) strncpy(buffer, "***", (size_t) 3);
+	    (void) memcpy(buffer, "***", (size_t) 3);
 	}
 
 	/*
@@ -1819,14 +1879,13 @@ plot_bar(long count, int c, int color)
 static long
 plot_num(long num_value, int c, int color, long *extra)
 {
-    long product;
     long result = 0;
 
     /* the value to plot */
     /* character to display in the bar */
     /* accumulated error in the bar */
     if (num_value) {
-	product = (plot_width * num_value);
+	long product = (plot_width * num_value);
 	result = ((product + *extra) / plot_scale);
 	*extra = product - (result * plot_scale) - *extra;
 	plot_bar(result, c, color);
@@ -1843,7 +1902,10 @@ plot_round1(const long num[MARKS])
     long want = 0;
     long have = 0;
     long half = (plot_scale / 2);
-    int i, j;
+    int i;
+
+    memset(scaled, 0, sizeof(scaled));
+    memset(remain, 0, sizeof(remain));
 
     for_each_mark(i) {
 	long product = (plot_width * num[i]);
@@ -1853,7 +1915,7 @@ plot_round1(const long num[MARKS])
 	have += product - remain[i];
     }
     while (want > have) {
-	j = -1;
+	int j = -1;
 	for_each_mark(i) {
 	    if (remain[i] != 0
 		&& (remain[i] > (j >= 0 ? remain[j] : half))) {
@@ -1951,7 +2013,6 @@ static void
 plot_numbers(const DATA * p)
 {
     long temp = 0;
-    long used = 0;
     int i;
 
     printf("%5ld ", TotalOf(p));
@@ -1969,6 +2030,8 @@ plot_numbers(const DATA * p)
 	    printf("\t%ld %c", p->count[i], marks[i]);
 	}
     } else {
+	long used = 0;
+
 	switch (round_opt) {
 	default:
 	    for_each_mark(i) {
@@ -2000,7 +2063,7 @@ plot_numbers(const DATA * p)
 static void
 show_data(const DATA * p)
 {
-    char *name = data_filename(p);
+    const char *name = data_filename(p);
     int width;
 
     if (summary_only) {
@@ -2144,12 +2207,13 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
     DATA *p;
     char *name;
 
-    TRACE(("count_unmodified_files %s\n", pathname));
+    TRACE(("count_unmodified_files \"%s\"\n", pathname));
     if (is_dir(pathname)) {
 	DIR *dp = opendir(pathname);
-	struct dirent *de;
 
 	if (dp != 0) {
+	    struct dirent *de;
+
 	    while ((de = readdir(dp)) != 0) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 		    continue;
@@ -2164,51 +2228,68 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	}
     } else if (is_file(pathname)) {
 	/*
-	 * Given the pathname from the (-S) source directory, derive a
-	 * corresponding path for the destination directory.  Then check if
+	 * Given the pathname from the (-D) source directory, derive a
+	 * corresponding path for the source directory.  Then check if
 	 * that path appears in the list of modified files.
 	 */
-	int found = 0;
-	const char *ref_name = (all_data ? all_data->name : pathname);
+	const char *ref_name = ((all_data && !unchanged) ? all_data->name : pathname);
+	char *source = 0;
 
 	if (prefix_opt >= 0) {
 	    int level_s = count_prefix(path_opt);
 	    int base_s = 0;
 	    int base_d = 0;
+
 	    (void) skip_prefix(pathname, level_s + 1, &base_s);
 	    (void) skip_prefix(ref_name, level_s + 1, &base_d);
 	    name = malloc(2 + strlen(pathname) + strlen(ref_name));
 	    sprintf(name, "%.*s%s", base_d, ref_name, base_s + pathname);
+	    source = malloc(strlen(ref_name) + 2 + strlen(pathname) + strlen(S_option));
+	    sprintf(source, "%s%c%s",
+		    S_option,
+		    PATHSEP,
+		    base_s + pathname);
 	} else {
 	    const char *mark = unchanged ? ref_name : data_filename(all_data);
 	    int skip = 1 + (int) strlen(path_opt);
+
 	    name = malloc(strlen(ref_name) + 2 + strlen(pathname));
 	    sprintf(name, "%.*s%s",
 		    (int) (mark - ref_name),
 		    ref_name,
 		    pathname + skip);
+	    source = malloc(strlen(ref_name) + 2 + strlen(pathname) + strlen(S_option));
+	    sprintf(source, "%s%c%.*s%s",
+		    S_option,
+		    PATHSEP,
+		    (int) (mark - ref_name),
+		    ref_name,
+		    pathname + skip);
 	}
-	if (is_file(name)) {
+
+	if (same_file(source, pathname)) {
+	    int found = 0;
+
 	    for (p = all_data; p != 0 && !found; p = p->link) {
 		if (!strcmp(name, p->name)) {
 		    found = 1;
 		}
 	    }
 	    if (!found) {
-		int len;
 		p = find_data(name);
 		*files += 1;
 		EqlOf(p) = count_lines(p);
 		*lines += EqlOf(p);
 
 		if (unchanged) {
-		    len = (int) strlen(p->name);
+		    int len = (int) strlen(p->name);
 		    if (min_name_wide < (len - p->base))
 			min_name_wide = (len - p->base);
 		}
 	    }
 	}
 	free(name);
+	free(source);
     }
 }
 #endif
@@ -2220,7 +2301,7 @@ update_min_name_wide(long longest_name)
 	if (prefix_len < 0)
 	    prefix_len = 0;
 	if ((longest_name - prefix_len) > min_name_wide)
-	    min_name_wide = (longest_name - prefix_len);
+	    min_name_wide = (int) (longest_name - prefix_len);
     }
 
     if (min_name_wide < 1)
@@ -2354,9 +2435,9 @@ summarize(void)
     update_min_name_wide(longest_name);
 
 #ifdef HAVE_OPENDIR
-    if (path_opt != 0) {
+    if (S_option != 0 && D_option != 0) {
 	unchanged = (all_data == 0);
-	count_unmodified_files(path_opt, &files_equal, &total_eql);
+	count_unmodified_files(D_option, &files_equal, &total_eql);
 	if (unchanged) {
 	    for (p = all_data; p; p = p->link) {
 		int len = (int) strlen(p->name);
@@ -2557,24 +2638,26 @@ copy_stdin(char **dirpath)
 {
     const char *tmp = getenv("TMPDIR");
     char *result = 0;
-    int ch;
-    FILE *fp;
-
     if (tmp == 0)
 	tmp = "/tmp/";
     *dirpath = xmalloc(strlen(tmp) + 12);
 
     strcpy(*dirpath, tmp);
     strcat(*dirpath, "/diffXXXXXX");
+
     if (MY_MKDTEMP(*dirpath) != 0) {
+	FILE *fp;
+
 	result = xmalloc(strlen(*dirpath) + 10);
 	sprintf(result, "%s/stdin", *dirpath);
 
 	if ((fp = fopen(result, "w")) != 0) {
+	    int ch;
+
 	    while ((ch = MY_GETC(stdin)) != EOF) {
 		fputc(ch, fp);
 	    }
-	    fclose(fp);
+	    (void) fclose(fp);
 	} else {
 	    free(result);
 	    result = 0;
@@ -2599,6 +2682,7 @@ set_path_opt(char *value, int destination)
 	if (is_dir(path_opt)) {
 	    num_marks = 4;
 	} else {
+	    (void) fflush(stdout);
 	    fprintf(stderr, "Not a directory:%s\n", path_opt);
 	    exit(EXIT_FAILURE);
 	}
@@ -2679,6 +2763,7 @@ getopt_value(void)
     char *next = 0;
     long value = strtol(optarg, &next, 0);
     if (next == 0 || *next != '\0') {
+	(void) fflush(stdout);
 	fprintf(stderr, "expected a number, have '%s'\n", optarg);
 	exit(EXIT_FAILURE);
     }
@@ -2712,7 +2797,7 @@ main(int argc, char *argv[])
 	    break;
 #endif
 	case 'D':
-	    set_path_opt(optarg, 1);
+	    D_option = optarg;
 	    break;
 	case 'e':
 	    if (freopen(optarg, "w", stderr) == 0)
@@ -2762,7 +2847,7 @@ main(int argc, char *argv[])
 	    summary_only = 1;
 	    break;
 	case 'S':
-	    set_path_opt(optarg, 0);
+	    S_option = optarg;
 	    break;
 	case 't':
 	    table_opt = 1;
@@ -2799,6 +2884,10 @@ main(int argc, char *argv[])
      * The numbers from -S/-D options will only be useful if the merge option
      * is added.
      */
+    if (S_option)
+	set_path_opt(S_option, 0);
+    if (D_option)
+	set_path_opt(D_option, 1);
     if (path_opt)
 	merge_opt = 1;
 
@@ -2818,6 +2907,7 @@ main(int argc, char *argv[])
 	    if (command != 0) {
 		if ((fp = popen(command, "r")) != 0) {
 		    if (show_progress) {
+			(void) fflush(stdout);
 			(void) fprintf(stderr, "%s\n", name);
 			(void) fflush(stderr);
 		    }
@@ -2829,6 +2919,7 @@ main(int argc, char *argv[])
 #endif
 	    if ((fp = fopen(name, "rb")) != 0) {
 		if (show_progress) {
+		    (void) fflush(stdout);
 		    (void) fprintf(stderr, "%s\n", name);
 		    (void) fflush(stderr);
 		}
@@ -2840,14 +2931,12 @@ main(int argc, char *argv[])
 	}
     } else {
 #ifdef HAVE_POPEN
-	FILE *fp;
 	Decompress which = dcEmpty;
 	char *stdin_dir = 0;
 	char *myfile;
 	char sniff[8];
 	int ch;
 	unsigned got = 0;
-	char *command;
 
 	if ((ch = MY_GETC(stdin)) != EOF) {
 	    which = dcNone;
@@ -2916,6 +3005,8 @@ main(int argc, char *argv[])
 	if (which != dcNone
 	    && which != dcEmpty
 	    && (myfile = copy_stdin(&stdin_dir)) != 0) {
+	    FILE *fp;
+	    char *command;
 
 	    /* open pipe to decompress temporary file */
 	    command = decompressor(which, myfile);
