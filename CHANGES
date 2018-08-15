@@ -1,4 +1,18 @@
--- $Id: CHANGES,v 1.94 2016/01/14 01:11:58 tom Exp $
+-- $Id: CHANGES,v 1.98 2018/08/15 00:36:08 tom Exp $
+
+2018/08/15 (diffstat 1.62)
+	+ improve checks for unmodified files when -S and -D options are
+	  given.
+
+	+ improve test-packages, to check warning-options.
+
+	+ minor fixes for manpage (Debian #895963)
+
+	+ update configure macros
+
+	+ update config.guess, config.sub
+
+	+ minor fixes for prefix-stripping with -S option.
 
 2016/01/14 (diffstat 1.61)
 	+ add -T option to show amount of changes next to histogram.
