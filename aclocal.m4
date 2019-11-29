@@ -1,10 +1,10 @@
-dnl $Id: aclocal.m4,v 1.37 2018/08/14 23:14:07 tom Exp $
+dnl $Id: aclocal.m4,v 1.41 2019/11/29 01:13:45 tom Exp $
 dnl autoconf macros for 'diffstat'
 dnl
-dnl Copyright 2003-2016,2018 Thomas E. Dickey
+dnl Copyright 2003-2018,2019 Thomas E. Dickey
 dnl
 dnl See also
-dnl http://invisible-island.net/autoconf/
+dnl https://invisible-island.net/autoconf/
 dnl
 dnl ---------------------------------------------------------------------------
 dnl ---------------------------------------------------------------------------
@@ -330,6 +330,60 @@ cf_save_CFLAGS="$cf_save_CFLAGS -Qunused-arguments"
 fi
 ])
 dnl ---------------------------------------------------------------------------
+dnl CF_CONST_X_STRING version: 1 updated: 2019/04/08 17:50:29
+dnl -----------------
+dnl The X11R4-X11R6 Xt specification uses an ambiguous String type for most
+dnl character-strings.
+dnl
+dnl It is ambiguous because the specification accommodated the pre-ANSI
+dnl compilers bundled by more than one vendor in lieu of providing a standard C
+dnl compiler other than by costly add-ons.  Because of this, the specification
+dnl did not take into account the use of const for telling the compiler that
+dnl string literals would be in readonly memory.
+dnl
+dnl As a workaround, one could (starting with X11R5) define XTSTRINGDEFINES, to
+dnl let the compiler decide how to represent Xt's strings which were #define'd. 
+dnl That does not solve the problem of using the block of Xt's strings which
+dnl are compiled into the library (and is less efficient than one might want).
+dnl
+dnl Xt specification 7 introduces the _CONST_X_STRING symbol which is used both
+dnl when compiling the library and compiling using the library, to tell the
+dnl compiler that String is const.
+AC_DEFUN([CF_CONST_X_STRING],
+[
+AC_TRY_COMPILE(
+[
+#include <stdlib.h>
+#include <X11/Intrinsic.h>
+],
+[String foo = malloc(1)],[
+
+AC_CACHE_CHECK(for X11/Xt const-feature,cf_cv_const_x_string,[
+	AC_TRY_COMPILE(
+		[
+#define _CONST_X_STRING	/* X11R7.8 (perhaps) */
+#undef  XTSTRINGDEFINES	/* X11R5 and later */
+#include <stdlib.h>
+#include <X11/Intrinsic.h>
+		],[String foo = malloc(1); *foo = 0],[
+			cf_cv_const_x_string=no
+		],[
+			cf_cv_const_x_string=yes
+		])
+])
+
+case $cf_cv_const_x_string in
+(no)
+	CF_APPEND_TEXT(CPPFLAGS,-DXTSTRINGDEFINES)
+	;;
+(*)
+	CF_APPEND_TEXT(CPPFLAGS,-D_CONST_X_STRING)
+	;;
+esac
+
+])
+])dnl
+dnl ---------------------------------------------------------------------------
 dnl CF_DISABLE_ECHO version: 13 updated: 2015/04/18 08:56:57
 dnl ---------------
 dnl You can always use "make -n" to see the actual options, but it's hard to
@@ -430,6 +484,40 @@ if test $ac_cv_func_lstat = yes; then
 	AC_DEFINE(HAVE_LSTAT,1,[Define to 1 if we have lstat])
 fi
 ])dnl
+dnl ---------------------------------------------------------------------------
+dnl CF_FUNC_MBSTOWCWIDTH version: 1 updated: 2019/11/28 14:10:37
+dnl --------------------
+dnl Check if mbsrtowcs() is available, along with the datatype needed to
+dnl use it, and wcwidth().  Using those, we can compute the number of columns
+dnl to use for a multibyte character string.
+AC_DEFUN(CF_FUNC_MBSTOWCWIDTH,[
+AC_REQUIRE([CF_LOCALE])
+AC_CACHE_CHECK(for mbsrtowcs and wcwidth,cf_cv_func_mbstowcwidth,[
+if test "$cf_cv_locale" = yes
+then
+	AC_TRY_LINK([
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+#include <sys/types.h>
+],[
+	mbstate_t state;
+	const char *source = "Hello\nWorld!\n";
+	size_t n;
+	size_t needed = strlen(source);
+	wchar_t *target = calloc(1 + needed, sizeof(wchar_t));
+
+	memset(&state, 0, sizeof(state));
+	(void) mbsrtowcs(target, &source, needed, &state);
+	for (n = 0; n < needed; ++n) {
+		if (wcwidth(target[n]) < 0)
+			return 1;
+	}
+],[cf_cv_func_mbstowcwidth=yes],[cf_cv_func_mbstowcwidth=no])
+fi
+])
+test "$cf_cv_func_mbstowcwidth" = yes && AC_DEFINE(HAVE_MBSTOWCWIDTH,1,[Define to 1 if mbsrtowsc and wcwidth exist])
+])
 dnl ---------------------------------------------------------------------------
 dnl CF_FUNC_POPEN version: 1 updated: 2013/10/28 19:42:35
 dnl -------------
@@ -558,9 +646,10 @@ rm -rf conftest*
 fi
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_GCC_VERSION version: 7 updated: 2012/10/18 06:46:33
+dnl CF_GCC_VERSION version: 8 updated: 2019/09/07 13:38:36
 dnl --------------
-dnl Find version of gcc
+dnl Find version of gcc, and (because icc/clang pretend to be gcc without being
+dnl compatible), attempt to determine if icc/clang is actually used.
 AC_DEFUN([CF_GCC_VERSION],[
 AC_REQUIRE([AC_PROG_CC])
 GCC_VERSION=none
@@ -570,9 +659,11 @@ if test "$GCC" = yes ; then
 	test -z "$GCC_VERSION" && GCC_VERSION=unknown
 	AC_MSG_RESULT($GCC_VERSION)
 fi
+CF_INTEL_COMPILER(GCC,INTEL_COMPILER,CFLAGS)
+CF_CLANG_COMPILER(GCC,CLANG_COMPILER,CFLAGS)
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_GCC_WARNINGS version: 33 updated: 2018/06/20 20:23:13
+dnl CF_GCC_WARNINGS version: 36 updated: 2019/09/07 13:38:36
 dnl ---------------
 dnl Check if the compiler supports useful warning options.  There's a few that
 dnl we don't use, simply because they're too noisy:
@@ -594,14 +685,11 @@ dnl
 AC_DEFUN([CF_GCC_WARNINGS],
 [
 AC_REQUIRE([CF_GCC_VERSION])
-CF_INTEL_COMPILER(GCC,INTEL_COMPILER,CFLAGS)
-CF_CLANG_COMPILER(GCC,CLANG_COMPILER,CFLAGS)
-
+if test "x$have_x" = xyes; then CF_CONST_X_STRING fi
 cat > conftest.$ac_ext <<EOF
 #line __oline__ "${as_me:-configure}"
 int main(int argc, char *argv[[]]) { return (argv[[argc-1]] == 0) ; }
 EOF
-
 if test "$INTEL_COMPILER" = yes
 then
 # The "-wdXXX" options suppress warnings:
@@ -636,7 +724,6 @@ then
 		fi
 	done
 	CFLAGS="$cf_save_CFLAGS"
-
 elif test "$GCC" = yes
 then
 	AC_CHECKING([for $CC warning options])
@@ -665,9 +752,6 @@ then
 		if AC_TRY_EVAL(ac_compile); then
 			test -n "$verbose" && AC_MSG_RESULT(... -$cf_opt)
 			case $cf_opt in
-			(Wcast-qual)
-				CF_APPEND_TEXT(CPPFLAGS,-DXTSTRINGDEFINES)
-				;;
 			(Winline)
 				case $GCC_VERSION in
 				([[34]].*)
@@ -719,7 +803,7 @@ if test $cf_cv_getopt_header = getopt.h ; then
 fi
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_GNU_SOURCE version: 9 updated: 2018/06/20 20:23:13
+dnl CF_GNU_SOURCE version: 10 updated: 2018/12/10 20:09:41
 dnl -------------
 dnl Check if we must define _GNU_SOURCE to get a reasonable value for
 dnl _XOPEN_SOURCE, upon which many POSIX definitions depend.  This is a defect
@@ -738,6 +822,8 @@ AC_CACHE_CHECK(if this is the GNU C library,cf_cv_gnu_library,[
 AC_TRY_COMPILE([#include <sys/types.h>],[
 	#if __GLIBC__ > 0 && __GLIBC_MINOR__ >= 0
 		return 0;
+	#elif __NEWLIB__ > 0 && __NEWLIB_MINOR__ >= 0
+		return 0;
 	#else
 	#	error not GNU C library
 	#endif],
@@ -748,12 +834,15 @@ AC_TRY_COMPILE([#include <sys/types.h>],[
 if test x$cf_cv_gnu_library = xyes; then
 
 	# With glibc 2.19 (13 years after this check was begun), _DEFAULT_SOURCE
-	# was changed to help a little...
+	# was changed to help a little.  newlib incorporated the change about 4
+	# years later.
 	AC_CACHE_CHECK(if _DEFAULT_SOURCE can be used as a basis,cf_cv_gnu_library_219,[
 		cf_save="$CPPFLAGS"
 		CF_APPEND_TEXT(CPPFLAGS,-D_DEFAULT_SOURCE)
 		AC_TRY_COMPILE([#include <sys/types.h>],[
 			#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 19) || (__GLIBC__ > 2)
+				return 0;
+			#elif (__NEWLIB__ == 2 && __NEWLIB_MINOR__ >= 4) || (__GLIBC__ > 3)
 				return 0;
 			#else
 			#	error GNU C library __GLIBC__.__GLIBC_MINOR__ is too old
@@ -861,6 +950,23 @@ cf_save_CFLAGS="$cf_save_CFLAGS -we147"
 		;;
 	esac
 fi
+])dnl
+dnl ---------------------------------------------------------------------------
+dnl CF_LOCALE version: 5 updated: 2012/10/06 11:17:15
+dnl ---------
+dnl Check if we have setlocale() and its header, <locale.h>
+dnl The optional parameter $1 tells what to do if we do have locale support.
+AC_DEFUN([CF_LOCALE],
+[
+AC_MSG_CHECKING(for setlocale())
+AC_CACHE_VAL(cf_cv_locale,[
+AC_TRY_LINK([#include <locale.h>],
+	[setlocale(LC_ALL, "")],
+	[cf_cv_locale=yes],
+	[cf_cv_locale=no])
+	])
+AC_MSG_RESULT($cf_cv_locale)
+test $cf_cv_locale = yes && { ifelse($1,,AC_DEFINE(LOCALE,1,[Define to 1 if we have locale support]),[$1]) }
 ])dnl
 dnl ---------------------------------------------------------------------------
 dnl CF_MAKE_DOCS version: 4 updated: 2015/07/04 21:43:03
@@ -1048,12 +1154,13 @@ ifelse([$1],,,[$1=$PATH_SEPARATOR])
 	AC_MSG_RESULT($PATH_SEPARATOR)
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_PATH_PROG version: 9 updated: 2012/10/04 20:12:20
+dnl CF_PATH_PROG version: 10 updated: 2019/06/30 19:44:43
 dnl ------------
 dnl Check for a given program, defining corresponding symbol.
 dnl	$1 = environment variable, which is suffixed by "_PATH" in the #define.
 dnl	$2 = program name to find.
 dnl	$3 = optional list of additional program names to test.
+dnl $4 = $PATH
 dnl
 dnl If there is more than one token in the result, #define the remaining tokens
 dnl to $1_ARGS.  We need this for 'install' in particular.
@@ -1063,7 +1170,7 @@ dnl
 AC_DEFUN([CF_PATH_PROG],[
 AC_REQUIRE([CF_PATHSEP])
 test -z "[$]$1" && $1=$2
-AC_PATH_PROGS($1,[$]$1 $2 $3,[$]$1)
+AC_PATH_PROGS($1,[$]$1 $2 ifelse($3,,,$3),[$]$1, ifelse($4,,,$4))
 
 cf_path_prog=""
 cf_path_args=""
@@ -1155,7 +1262,7 @@ if test $ac_cv_td_popen = yes; then
 fi
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_POSIX_C_SOURCE version: 10 updated: 2018/06/20 20:23:13
+dnl CF_POSIX_C_SOURCE version: 11 updated: 2018/12/31 20:46:17
 dnl -----------------
 dnl Define _POSIX_C_SOURCE to the given level, and _POSIX_SOURCE if needed.
 dnl
@@ -1170,7 +1277,10 @@ dnl
 dnl Parameters:
 dnl	$1 is the nominal value for _POSIX_C_SOURCE
 AC_DEFUN([CF_POSIX_C_SOURCE],
-[
+[AC_REQUIRE([CF_POSIX_VISIBLE])dnl
+
+if test "$cf_cv_posix_visible" = no; then
+
 cf_POSIX_C_SOURCE=ifelse([$1],,199506L,[$1])
 
 cf_save_CFLAGS="$CFLAGS"
@@ -1227,6 +1337,35 @@ if test "$cf_cv_posix_c_source" != no ; then
 	CF_ADD_CFLAGS($cf_cv_posix_c_source)
 fi
 
+fi # cf_cv_posix_visible
+
+])dnl
+dnl ---------------------------------------------------------------------------
+dnl CF_POSIX_VISIBLE version: 1 updated: 2018/12/31 20:46:17
+dnl ----------------
+dnl POSIX documents test-macros which an application may set before any system
+dnl headers are included to make features available.
+dnl
+dnl Some BSD platforms (originally FreeBSD, but copied by a few others)
+dnl diverged from POSIX in 2002 by setting symbols which make all of the most
+dnl recent features visible in the system header files unless the application
+dnl overrides the corresponding test-macros.  Doing that introduces portability
+dnl problems.
+dnl
+dnl This macro makes a special check for the symbols used for this, to avoid a
+dnl conflicting definition.
+AC_DEFUN([CF_POSIX_VISIBLE],
+[
+AC_CACHE_CHECK(if the POSIX test-macros are already defined,cf_cv_posix_visible,[
+AC_TRY_COMPILE([#include <stdio.h>],[
+#if defined(__POSIX_VISIBLE) && ((__POSIX_VISIBLE - 0L) > 0) \
+	&& defined(__XSI_VISIBLE) && ((__XSI_VISIBLE - 0L) > 0) \
+	&& defined(__BSD_VISIBLE) && ((__BSD_VISIBLE - 0L) > 0) \
+	&& defined(__ISO_C_VISIBLE) && ((__ISO_C_VISIBLE - 0L) > 0)
+#error conflicting symbols found
+#endif
+],[cf_cv_posix_visible=no],[cf_cv_posix_visible=yes])
+])
 ])dnl
 dnl ---------------------------------------------------------------------------
 dnl CF_PROG_CC version: 4 updated: 2014/07/12 18:57:58
@@ -1262,11 +1401,16 @@ AC_SUBST(GROFF_NOTE)
 AC_SUBST(NROFF_NOTE)
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_PROG_LINT version: 3 updated: 2016/05/22 15:25:54
+dnl CF_PROG_LINT version: 4 updated: 2019/11/20 18:55:37
 dnl ------------
 AC_DEFUN([CF_PROG_LINT],
 [
 AC_CHECK_PROGS(LINT, lint cppcheck splint)
+case "x$LINT" in
+(xcppcheck|x*/cppcheck)
+	test -z "$LINT_OPTS" && LINT_OPTS="--enable=all"
+	;;
+esac
 AC_SUBST(LINT_OPTS)
 ])dnl
 dnl ---------------------------------------------------------------------------
@@ -1319,6 +1463,40 @@ if test "$cf_stdio_unlocked" != no ; then
 	esac
 fi
 ])
+dnl ---------------------------------------------------------------------------
+dnl CF_TERMIOS version: 2 updated: 1997/08/28 23:57:55
+dnl ----------
+dnl See if we can link with the termios functions tcsetattr/tcgetattr
+AC_DEFUN([CF_TERMIOS],
+[
+AC_MSG_CHECKING([for nonconflicting termios.h])
+AC_CACHE_VAL(cf_cv_use_termios_h,[
+	AC_TRY_LINK([
+#ifdef HAVE_IOCTL_H
+#	include <ioctl.h>
+#else
+#	ifdef HAVE_SYS_IOCTL_H
+#		include <sys/ioctl.h>
+#	endif
+#endif
+
+#if !defined(sun) || !defined(NL0)
+#include <termios.h>
+#endif
+],[
+	struct termios save_tty;
+	(void) tcsetattr (0, TCSANOW, &save_tty);
+	(void) tcgetattr (0, &save_tty)],
+	[cf_cv_use_termios_h=yes],
+	[cf_cv_use_termios_h=no])
+])
+AC_MSG_RESULT($cf_cv_use_termios_h)
+if test $cf_cv_use_termios_h = yes; then
+	AC_DEFINE(HAVE_TERMIOS_H)
+	AC_DEFINE(HAVE_TCGETATTR)
+	AC_DEFINE(HAVE_TCSETATTR)
+fi
+])dnl
 dnl ---------------------------------------------------------------------------
 dnl CF_TRY_XOPEN_SOURCE version: 2 updated: 2018/06/20 20:23:13
 dnl -------------------
@@ -1619,7 +1797,7 @@ fi
 fi
 ])dnl
 dnl ---------------------------------------------------------------------------
-dnl CF_XOPEN_SOURCE version: 53 updated: 2018/06/16 18:58:58
+dnl CF_XOPEN_SOURCE version: 55 updated: 2018/12/31 20:46:17
 dnl ---------------
 dnl Try to get _XOPEN_SOURCE defined properly that we can use POSIX functions,
 dnl or adapt to the vendor's definitions to get equivalent functionality,
@@ -1630,6 +1808,9 @@ dnl	$1 is the nominal value for _XOPEN_SOURCE
 dnl	$2 is the nominal value for _POSIX_C_SOURCE
 AC_DEFUN([CF_XOPEN_SOURCE],[
 AC_REQUIRE([AC_CANONICAL_HOST])
+AC_REQUIRE([CF_POSIX_VISIBLE])
+
+if test "$cf_cv_posix_visible" = no; then
 
 cf_XOPEN_SOURCE=ifelse([$1],,500,[$1])
 cf_POSIX_C_SOURCE=ifelse([$2],,199506L,[$2])
@@ -1649,7 +1830,7 @@ case $host_os in
 	cf_xopen_source="-D_DARWIN_C_SOURCE"
 	cf_XOPEN_SOURCE=
 	;;
-(freebsd*|dragonfly*)
+(freebsd*|dragonfly*|midnightbsd*)
 	# 5.x headers associate
 	#	_XOPEN_SOURCE=600 with _POSIX_C_SOURCE=200112L
 	#	_XOPEN_SOURCE=500 with _POSIX_C_SOURCE=199506L
@@ -1744,4 +1925,5 @@ make an error
 		CF_TRY_XOPEN_SOURCE
 	fi
 fi
+fi # cf_cv_posix_visible
 ])

@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2016,2018 by Thomas E. Dickey                               *
+ * Copyright 1994-2018,2019 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.62 2018/08/15 01:26:54 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.63 2019/11/29 20:39:01 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,15 @@ static const char *Id = "$Id: diffstat.c,v 1.62 2018/08/15 01:26:54 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		29 Nov 2019, eliminate fixed buffer when decoding range.
+ *		28 Nov 2019, use locale in computing filename column-width.
+ *			     improve parsing for git diffs.
+ *			     use terminal-width as default for -w to tty.
+ *			     minor fix in do_merging (Miloslaw Smyk).
+ *		27 Nov 2019, improve relative-pathname matching in count_lines()
+ *			     add a parsing-case for svn diff.
+ *			     quote filenames in -t/-T output.
+ *		24 Nov 2019, fix cppcheck-warnings about sscanf.
  *		14 Aug 2018, revise -S/-D option to improve count of unmodified
  *			     files.
  *		14 Jan 2016, extend -S option to count unmodified files.
@@ -237,6 +246,11 @@ extern int isatty(int);
 #undef HAVE_TSEARCH
 #endif
 
+#ifdef HAVE_MBSTOWCWIDTH
+#include <locale.h>
+#include <wchar.h>
+#endif
+
 #ifdef HAVE_GETC_UNLOCKED
 #define MY_GETC getc_unlocked
 #else
@@ -253,6 +267,19 @@ extern int optind;
 
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#if defined(HAVE_TERMIOS_H) && defined(HAVE_TCGETATTR)
+#ifdef HAVE_IOCTL_H
+#include <ioctl.h>
+#else
+#ifdef HAVE_SYS_IOCTL_H
+#include <sys/ioctl.h>
+#endif
+#endif
+#if !defined(sun) || !defined(NL0)
+#include <termios.h>
+#endif
+#endif /* HAVE_TERMIOS_H */
 
 #if defined(HAVE_POPEN) && !defined(HAVE_POPEN_PROTOTYPE)
 extern FILE *popen(const char *, const char *);
@@ -314,12 +341,20 @@ extern int pclose(FILE *);
 #define PATHSEP '/'
 #endif
 
+#define BACKSL  '\\'
+#define LPAREN  '('
+#define RPAREN  ')'
 #define DQUOTE  '"'
 #define SQUOTE  '\''
+#define ESCAPE  '\033'
 #define EOS     '\0'
+#define TAB     '\t'
 #define BLANK   ' '
+#define DEL     '\177'
 
 #define UC(c)   ((unsigned char)(c))
+
+#define isoctal(c) (((c) >= '0') && ((c) <= '7'))
 
 #ifndef OPT_TRACE
 #define OPT_TRACE 1
@@ -400,7 +435,7 @@ static char *path_opt = 0;
 static int count_files;		/* true if we count added/deleted files */
 static int format_opt = FMT_NORMAL;
 static int max_name_wide;	/* maximum amount reserved for filenames */
-static int max_width;		/* the specified width-limit */
+static int max_width = 80;	/* the specified width-limit */
 static int merge_names = 1;	/* true if we merge similar filenames */
 static int merge_opt = 0;	/* true if we merge ins/del as modified */
 static int min_name_wide;	/* minimum amount reserved for filenames */
@@ -540,18 +575,26 @@ blip(int c)
     }
 }
 
+#ifdef HAVE_STRDUP
+#define new_string(s) strdup(s)
+#else
 static char *
 new_string(const char *s)
 {
     return strcpy((char *) xmalloc((size_t) (strlen(s) + 1)), s);
 }
+#endif
 
 static int
 compare_data(const void *a, const void *b)
 {
     const DATA *p = (const DATA *) a;
     const DATA *q = (const DATA *) b;
-    return strcmp(p->name + p->base, q->name + q->base);
+    return ((p != NULL)
+	    ? ((q != NULL)
+	       ? strcmp(p->name + p->base, q->name + q->base)
+	       : 1)
+	    : -1);
 }
 
 static void
@@ -631,8 +674,7 @@ skip_prefix(const char *name, int prefix, int *base)
 static DATA *
 find_data(const char *name)
 {
-    DATA *p, *r;
-    DATA find;
+    DATA *r;
     int base = 0;
 
     TRACE(("** find_data(%s)\n", name));
@@ -656,6 +698,8 @@ find_data(const char *name)
     } else
 #endif
     {
+	DATA *p;
+	DATA find;
 	DATA *q;
 
 	init_data(&find, name, 1, base);
@@ -803,23 +847,41 @@ decode_default(char *s,
  * claim that both numbers are line-numbers.  However, inspection of the output
  * shows that the numbers are a line-number followed by a count.
  */
-static int
-decode_range(const char *s, int *first, int *second)
+static char *
+decode_range(char *s, int *first, int *second)
 {
-    int rc = 0;
-    char check;
-
     if (isdigit(UC(*s))) {
-	if (sscanf(s, "%d,%d%c", first, second, &check) == 2) {
-	    TRACE(("** decode_range #1 first=%d, second=%d\n", *first, *second));
-	    rc = 1;
-	} else if (sscanf(s, "%d%c", first, &check) == 1) {
-	    *second = *first;	/* diffutils 2.7 does this */
-	    TRACE(("** decode_range #2 first=%d, second=%d\n", *first, *second));
-	    rc = 1;
+	int count = 0;
+	int value[2];
+
+	value[count] = 0;
+	while (*s != EOS) {
+	    int ch = UC(*s);
+	    if (isdigit(ch)) {
+		value[count] = (10 * value[count]) + (ch - '0');
+	    } else if (ch == ',') {
+		if (++count > 1) {
+		    s = NULL;
+		    break;
+		}
+		value[count] = 0;
+	    } else {
+		break;
+	    }
+	    ++s;
+	}
+	if (s != NULL) {
+	    *first = value[0];
+	    if (count == 0) {
+		*second = *first;	/* diffutils 2.7 does this */
+	    } else {
+		*second = value[1];
+	    }
+	    TRACE(("** decode_range #%d first=%d, second=%d\n",
+		   count + 1, *first, *second));
 	}
     }
-    return rc;
+    return s;
 }
 
 static int
@@ -1031,10 +1093,10 @@ do_merging(DATA * data, char *path, int *freed)
 	if (can_be_merged(source)) {
 	    TRACE(("** merge @%d\n", __LINE__));
 	    if (merge_names
-		&& *target != '\0'
+		&& *target != EOS
 		&& prefix_opt < 0) {
 		size_t matched = compare_tails(target, source, &diff);
-		if (matched)
+		if (matched && !diff)
 		    result = target + (int) (strlen(target) - matched);
 	    }
 	} else {
@@ -1210,12 +1272,28 @@ count_lines(DATA * p)
     if ((filename = malloc(want)) != 0) {
 	int merge = 0;
 
-	if (path_dest) {
+	if (path_dest && *path_opt != EOS && *filetail != PATHSEP) {
 	    size_t path_len = strlen(path_opt);
+	    size_t tail_len = strlen(filetail);
 	    char *tail_sep = strchr(filetail, PATHSEP);
+	    size_t n;
 
-	    if (tail_sep != 0) {
-		size_t tail_len = (size_t) (tail_sep - filetail);
+	    for (n = path_len - 1; (int) n >= 0; --n) {
+		if ((path_len - n) > tail_len)
+		    break;
+		if ((n == 0 || path_opt[n - 1] == PATHSEP)
+		    && filetail[path_len - n] == PATHSEP) {
+		    if (!strncmp(path_opt + n, filetail, path_len - n)) {
+			merge = 1;
+			strcpy(filename, path_opt);
+			strcpy(filename + n, filetail);
+			break;
+		    }
+		}
+	    }
+
+	    if (merge == 0 && tail_sep != 0) {
+		tail_len = (size_t) (tail_sep - filetail);
 		if (tail_len != 0 && tail_len <= path_len) {
 		    if (tail_len < path_len
 			&& path_opt[path_len - tail_len - 1] != PATHSEP) {
@@ -1297,6 +1375,254 @@ finish_chunk(DATA * p)
     }
 }
 
+static char *
+copy_notabs(char *target, char *source, size_t limit)
+{
+    char *result = 0;
+    if (limit-- != 0) {		/* count trailing null */
+	char ch;
+	int found = 0;
+	while ((ch = *source) != EOS) {
+	    if (ch == TAB) {
+		if (found)
+		    result = source;
+		break;
+	    } else if (limit-- == 0) {
+		break;
+	    }
+	    *target++ = ch;
+	    *target = EOS;
+	    ++source;
+	    found = 1;
+	}
+    }
+    return result;
+}
+
+static char *
+copy_graphs(char *target, char *source, size_t limit)
+{
+    int found = 0;
+    if (limit-- != 0) {		/* count trailing null */
+	char ch;
+	while ((ch = *source) != EOS) {
+	    if (ch == TAB || ch == BLANK) {
+		break;
+	    } else if (limit-- == 0) {
+		found = 0;
+		break;
+	    }
+	    *target++ = ch;
+	    *target = EOS;
+	    ++source;
+	    found = 1;
+	}
+    }
+    return found ? source : NULL;
+}
+
+/*
+ * Tested with git 2.11:
+ * git uses dummy directory-names "a" and "b" rather than the actual working
+ * directory.  Also, it allows non-printable characters, encoded in C-style
+ * backslash sequences.  When those are used, it double-quotes the string.
+ */
+static char *
+copy_git_name(char *target, char *source, size_t limit)
+{
+    int found = 0;
+    int quoted = 0;
+
+    /*
+     * Account for double-quote.
+     */
+    if (*source == DQUOTE) {
+	quoted = 1;
+	++source;
+	limit--;
+    }
+
+    /*
+     * Check for the dummy directory paths, and quit if not used.
+     */
+    if (limit <= 2 || (strncmp(source, "a/", 2) && strncmp(source, "b/", 2))) {
+	limit = 0;
+    } else {
+	if (path_dest && !strncmp(source, "b/", 2)) {
+	    source += 2;	/* tweak to help with counting lines */
+	}
+    }
+
+    if (limit-- != 0) {		/* count trailing null */
+	char ch;
+	while ((ch = *source) != EOS) {
+	    if (quoted) {
+		if (ch == DQUOTE) {
+		    if (*++source != EOS)
+			found = 0;
+		    break;
+		} else if (ch == BACKSL) {
+		    int fail = 0;
+		    if ((ch = *++source) == EOS) {
+			fail = 1;
+		    } else if (isoctal(UC(ch))) {
+			int need = 3;
+			int value = 0;
+			/* decode octal escapes into UTF-8 bytes */
+			while (need-- > 0) {
+			    if (isoctal(*source)) {
+				value <<= 3;
+				value |= (UC(*source) - '0');
+				if (need) {
+				    ++source;
+				}
+			    } else {
+				fail = 1;
+				break;
+			    }
+			}
+			ch = (char) value;
+		    } else {
+			--limit;
+			switch (ch) {
+			case BACKSL:
+			    /* FALLTHRU */
+			case DQUOTE:
+			    break;
+			case 'b':
+			    ch = '\b';
+			    break;
+			case 'n':
+			    ch = '\n';
+			    break;
+			case 'r':
+			    ch = '\r';
+			    break;
+			case 't':
+			    ch = '\t';
+			    break;
+			default:
+			    fail = 1;
+			    break;
+			}
+		    }
+		    if (fail) {
+			found = 0;
+			break;
+		    }
+		}
+	    } else if (!isprint(UC(ch))) {
+		break;
+	    }
+	    if (limit-- == 0) {
+		found = 0;
+		break;
+	    }
+	    *target++ = ch;
+	    *target = EOS;
+	    ++source;
+	    found = 1;
+	}
+    }
+    return found ? source : NULL;
+}
+
+/* perforce */
+static char *
+copy_p4_name(char *target, char *source, size_t limit)
+{
+    int found = 0;
+    if (limit-- != 0) {		/* count trailing null */
+	char ch;
+	while ((ch = *source) != EOS) {
+	    if (ch == TAB || ch == BLANK || ch == '#') {
+		break;
+	    } else if (limit-- == 0) {
+		found = 0;
+		break;
+	    }
+	    *target++ = ch;
+	    *target = EOS;
+	    ++source;
+	    found = 1;
+	}
+    }
+    return found ? source : NULL;
+}
+
+static char *
+copy_integer(int *target, char *source)
+{
+    char *next = NULL;
+    long value = strtol(source, &next, 10);
+    *target = (int) value;
+    return next;
+}
+
+static char *
+need_blanks(char *source)
+{
+    int found = 0;
+    while (*source != EOS) {
+	char ch = *source++;
+	if (ch == BLANK || ch == TAB)
+	    found = 1;
+    }
+    return found ? source : NULL;
+}
+
+static char *
+need_graphs(char *source)
+{
+    char *result = NULL;
+    int found = 0;
+    while (*source != EOS) {
+	char ch = *source;
+	if (ch == BLANK || ch == TAB || ch == EOS) {
+	    if (found)
+		result = source;
+	    break;
+	}
+	++source;
+	found = 1;
+    }
+    return result;
+}
+
+static char *
+need_nospcs(char *source)
+{
+    char *result = NULL;
+    int found = 0;
+    while (*source != EOS) {
+	char ch = *source;
+	if (ch == BLANK || ch == EOS) {
+	    if (found)
+		result = source;
+	    break;
+	}
+	++source;
+	found = 1;
+    }
+    return result;
+}
+
+/* this is used with SVN */
+static char *
+need_parens(char *source)
+{
+    char *result = NULL;
+    if (*source++ == LPAREN) {
+	while (*source != EOS) {
+	    if (*source++ == RPAREN) {
+		result = source;
+		break;
+	    }
+	}
+    }
+    return result;
+}
+
 #define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
 #define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
 
@@ -1310,9 +1636,6 @@ do_file(FILE *fp, const char *default_name)
     DATA *prev = 0;
     char *buffer = 0;
     char *b_fname = 0;
-    char *b_temp1 = 0;
-    char *b_temp2 = 0;
-    char *b_temp3 = 0;
     size_t length = 0;
     size_t fixed = 0;
     int ok = HAVE_NOTHING;
@@ -1339,9 +1662,6 @@ do_file(FILE *fp, const char *default_name)
 
     fixed_buffer(&buffer, fixed = length = BUFSIZ);
     fixed_buffer(&b_fname, length);
-    fixed_buffer(&b_temp1, length);
-    fixed_buffer(&b_temp2, length);
-    fixed_buffer(&b_temp3, length);
 
     while (get_line(&buffer, &length, fp)) {
 	/*
@@ -1350,15 +1670,12 @@ do_file(FILE *fp, const char *default_name)
 	if (length > fixed) {
 	    fixed = length;
 	    adjust_buffer(&b_fname, length);
-	    adjust_buffer(&b_temp1, length);
-	    adjust_buffer(&b_temp2, length);
-	    adjust_buffer(&b_temp3, length);
 	}
 
 	/*
 	 * Trim trailing newline.
 	 */
-	for (s = buffer + strlen(buffer); s > buffer; s--) {
+	for (s = buffer + strlen(buffer); s != buffer; s--) {
 	    if ((UC(s[-1]) == '\n') || (UC(s[-1]) == '\r'))
 		s[-1] = EOS;
 	    else
@@ -1372,12 +1689,12 @@ do_file(FILE *fp, const char *default_name)
 	if (trim_escapes && (strchr(buffer, '\033') != 0)) {
 	    char *d = buffer;
 	    s = d;
-	    while (*s != '\0') {
+	    while (*s != EOS) {
 		if (*s == '\033') {
-		    while (*s != '\0' && !isFINAL(*s)) {
+		    while (*s != EOS && !isFINAL(*s)) {
 			++s;
 		    }
-		    if (*s != '\0') {
+		    if (*s != EOS) {
 			++s;
 			continue;
 		    } else {
@@ -1386,7 +1703,7 @@ do_file(FILE *fp, const char *default_name)
 		}
 		*d++ = *s++;
 	    }
-	    *d = '\0';
+	    *d = EOS;
 	}
 	++line_no;
 	TRACE(("[%05d] %s\n", line_no, buffer));
@@ -1444,16 +1761,14 @@ do_file(FILE *fp, const char *default_name)
 	    unified = 0;
 	    if (*buffer == '@') {
 		int old_base, new_base, old_size, new_size;
-		char test_at;
+		char *sp;
 
 		old_unify = new_unify = 0;
-		if (sscanf(buffer, "@@ -%80[0-9,] +%80[0-9,] @%c",
-			   b_temp1,
-			   b_temp2,
-			   &test_at) == 3
-		    && test_at == '@'
-		    && decode_range(b_temp1, &old_base, &old_size)
-		    && decode_range(b_temp2, &new_base, &new_size)) {
+		if ((sp = match(buffer, "@@ -")) != NULL
+		    && (sp = decode_range(sp, &old_base, &old_size)) != NULL
+		    && (sp = match(sp, " +")) != NULL
+		    && (sp = decode_range(sp, &new_base, &new_size)) != NULL
+		    && (sp = match(sp, " @")) != NULL) {
 		    old_unify = old_size;
 		    new_unify = new_size;
 		    unified = -1;
@@ -1501,7 +1816,7 @@ do_file(FILE *fp, const char *default_name)
 		if (new_unify)
 		    --new_unify;
 		break;
-	    case '\\':
+	    case BACKSL:
 		if (strstr(buffer, "newline") != 0) {
 		    break;
 		}
@@ -1628,44 +1943,61 @@ do_file(FILE *fp, const char *default_name)
 		int ddd, hour, minute, second;
 		int day, month, year;
 		char yrmon, monday;
+		char *stars = match(buffer, "*** ");
+		char *sp;
+
+		if (stars == NULL)
+		    break;	/* ignore */
 
 		/* check for tab-delimited first, so we can
 		 * accept filenames containing spaces.
 		 */
-		if (sscanf(buffer,
-			   "*** %[^\t]\t%[^ ] %[^ ] %d %d:%d:%d %d",
-			   b_fname,
-			   b_temp2, b_temp3, &ddd,
-			   &hour, &minute, &second, &year) == 8
-		    || (sscanf(buffer,
-			       "*** %[^\t]\t%d%c%d%c%d %d:%d:%d",
-			       b_fname,
-			       &year, &yrmon, &month, &monday, &day,
-			       &hour, &minute, &second) == 9
+		if (((sp = copy_notabs(b_fname, stars, length)) != NULL
+		     && (sp = match(sp, "\t")) != NULL
+		     && (sp = need_nospcs(sp)) != NULL
+		     && (sp = match(sp, " ")) != NULL
+		     && (sp = need_nospcs(sp)) != NULL
+		     && sscanf(sp,
+			       " %d %d:%d:%d %d",
+			       &ddd,
+			       &hour, &minute, &second, &year) == 5)
+		    || ((sp = copy_notabs(b_fname, stars, length)) != NULL
+			&& sscanf(sp,
+				  "\t%d%c%d%c%d %d:%d:%d",
+				  &year, &yrmon, &month, &monday, &day,
+				  &hour, &minute, &second) == 8
 			&& date_delims(yrmon, monday)
 			&& !version_num(b_fname))
-		    || (sscanf(buffer,
-			       "*** %[^\t]\t(%[^)])\t(%[^)])",
-			       b_fname, b_temp1, b_temp2) == 3
+		    || ((sp = copy_notabs(b_fname, stars, length)) != NULL
+			&& (sp = match(sp, "\t")) != NULL
+			&& (sp = need_parens(sp)) != NULL
+			&& (sp = match(sp, "\t")) != NULL
+			&& (sp = need_parens(sp)) != NULL
 			&& !version_num(b_fname))
-		    || sscanf(buffer,
-			      "*** %[^\t ]%[\t ]%[^ ] %[^ ] %d %d:%d:%d %d",
-			      b_fname,
-			      b_temp1,
-			      b_temp2, b_temp3, &ddd,
-			      &hour, &minute, &second, &year) == 9
-		    || (sscanf(buffer,
-			       "*** %[^\t ]%[\t ]%d%c%d%c%d %d:%d:%d",
-			       b_fname,
-			       b_temp1,
-			       &year, &yrmon, &month, &monday, &day,
-			       &hour, &minute, &second) == 10
+		    || ((sp = copy_notabs(b_fname, stars, length)) != NULL
+			&& (sp = match(sp, "\t")) != NULL
+			&& (sp = need_parens(sp)) != NULL
+			&& (*skip_blanks(sp) == EOS))
+		    || ((sp = copy_graphs(b_fname, stars, length)) != NULL
+			&& (sp = need_blanks(sp)) != NULL
+			&& (sp = need_nospcs(sp)) != NULL
+			&& (sp = match(sp, " ")) != NULL
+			&& (sp = need_nospcs(sp)) != NULL
+			&& sscanf(sp,
+				  " %d %d:%d:%d %d",
+				  &ddd, &hour, &minute, &second, &year) == 5)
+		    || ((sp = copy_graphs(b_fname, stars, length)) != NULL
+			&& (sp = need_blanks(sp)) != NULL
+			&& sscanf(sp,
+				  "%d%c%d%c%d %d:%d:%d",
+				  &year, &yrmon, &month, &monday, &day,
+				  &hour, &minute, &second) == 8
 			&& date_delims(yrmon, monday)
 			&& !version_num(b_fname))
-		    || (sscanf(buffer,
-			       "*** %[^\t ]%[\t ]",
-			       b_fname,
-			       b_temp1) >= 1
+		    || ((sp = copy_git_name(b_fname, stars, length)) != NULL
+			&& *skip_blanks(sp) == EOS)
+		    || ((sp = copy_graphs(b_fname, stars, length)) != NULL
+			&& (*sp == EOS || *sp == BLANK || *sp == TAB)
 			&& !version_num(b_fname)
 			&& !contain_any(b_fname, "*")
 			&& !edit_range(b_fname))
@@ -1687,18 +2019,18 @@ do_file(FILE *fp, const char *default_name)
 	    CASE_TRACE();
 	    if (!(ok & HAVE_PATH)) {
 		int rev;
+		char *bars, *sp;
 
-		if (((sscanf(buffer,
-			     "==== %[^\t #]#%d - %[^\t ]",
-			     b_fname,
-			     &rev,
-			     b_temp1) == 3)
-		     || ((sscanf(buffer,
-				 "==== %[^\t #]#%d (%[^)]) - %[^\t ]",
-				 b_fname,
-				 &rev,
-				 b_temp1,
-				 b_temp2) == 4)))
+		if ((bars = match(buffer, "==== ")) != NULL
+		    && (bars = copy_p4_name(b_fname, bars, length)) != NULL
+		    && (bars = match(bars, "#")) != NULL
+		    && (bars = copy_integer(&rev, bars)) != NULL
+		    && (((sp = match(bars, " - ")) != NULL
+			 && (sp = need_graphs(sp)) != NULL)
+			|| (((sp = match(bars, " ")) != NULL
+			     && (sp = need_parens(sp)) != NULL
+			     && (sp = match(sp, " - ")) != NULL
+			     && (sp = need_graphs(sp)) != NULL)))
 		    && !version_num(b_fname)
 		    && !contain_any(b_fname, "*")
 		    && !edit_range(b_fname)) {
@@ -1840,9 +2172,6 @@ do_file(FILE *fp, const char *default_name)
 
     free(buffer);
     free(b_fname);
-    free(b_temp1);
-    free(b_temp2);
-    free(b_temp3);
 }
 
 static void
@@ -2056,6 +2385,126 @@ plot_numbers(const DATA * p)
     }
 }
 
+static int
+columns_of(const char *value)
+{
+    int result;
+    int n;
+    int ch;
+#ifdef HAVE_MBSTOWCWIDTH
+    int fixup = 0;
+    for (n = 0; (ch = UC(value[n])) != EOS; ++n) {
+	if (ch >= DEL || ch < BLANK) {
+	    fixup = 1;
+	    break;
+	}
+    }
+    result = (int) strlen(value);
+    if (fixup) {
+	size_t needed;
+	mbstate_t state;
+	const char *source;
+	size_t length = strlen(value);
+
+	memset(&state, 0, sizeof(state));
+	source = value;
+	needed = mbsrtowcs(NULL, &source, length, &state);
+	if (needed != (size_t) (-1)) {
+	    wchar_t *target = calloc(1 + needed, sizeof(wchar_t));
+	    memset(&state, 0, sizeof(state));
+	    source = value;
+	    if (mbsrtowcs(target, &source, length, &state) == needed) {
+		size_t n2;
+		result = 0;
+		for (n2 = 0; n2 < needed; ++n2) {
+		    int nw = wcwidth(target[n2]);
+		    if (nw > 0)
+			result += nw;
+		    else if (target[n2] < BLANK || target[n2] == DEL)
+			result += 2;
+		    else
+			result += 4;	/* show as octal */
+		}
+	    }
+	    free(target);
+	}
+    }
+#else
+    result = (int) strlen(value);
+    for (n = 0; (ch = UC(value[n])) != EOS; ++n) {
+	if (ch == DEL || ch < BLANK) {
+	    result += 1;
+	} else if (ch > DEL) {
+	    result += 3;	/* show as octal */
+	}
+    }
+#endif
+    return result;
+}
+
+#define adjustwide(width,name) width += (int) strlen(name) - columns_of(name)
+
+static void
+show_quoted(const char *value)
+{
+    int ch;
+
+    putchar(DQUOTE);
+    while ((ch = UC(*value++)) != EOS) {
+	if (ch == DQUOTE)
+	    putchar(DQUOTE);
+	putchar(ch);
+    }
+    putchar(DQUOTE);
+}
+
+static void
+show_unquoted(const char *value, int limit)
+{
+    int ch;
+    while ((ch = UC(*value++)) != EOS) {
+	if (ch < BLANK) {
+	    if (strchr("\b\n\r\t\\\"", ch) != NULL) {
+		putchar(BACKSL);
+		switch (ch) {
+		case '\b':
+		    ch = 'b';
+		    break;
+		case '\n':
+		    ch = 'n';
+		    break;
+		case '\r':
+		    ch = 'r';
+		    break;
+		case '\t':
+		    ch = 't';
+		    break;
+		}
+	    } else {
+		putchar('^');
+		ch |= '@';
+	    }
+	} else if (ch == DEL) {
+	    putchar('^');
+	    ch = '?';
+	}
+#ifndef HAVE_MBSTOWCWIDTH
+	else if (ch > DEL) {
+	    char temp[5];
+	    sprintf(temp, "\\%03o", ch & 0xff);
+	    ch = temp[3];
+	    temp[3] = EOS;
+	    fputs(temp, stdout);
+	}
+#endif
+	putchar(ch);
+	--limit;
+    }
+    while (limit-- > 0) {
+	putchar(BLANK);
+    }
+}
+
 #define changed(p) (!merge_names \
 		    || (p)->cmt != Normal \
 		    || (TotalOf(p)) != 0)
@@ -2074,7 +2523,7 @@ show_data(const DATA * p)
 	;
     } else if (table_opt == 1) {
 	if (names_only) {
-	    printf("%s\n", name);
+	    show_quoted(name);
 	} else {
 	    printf("%ld,%ld,%ld,",
 		   InsOf(p),
@@ -2087,21 +2536,23 @@ show_data(const DATA * p)
 		       (p->cmt == OnlyRight),
 		       (p->cmt == OnlyLeft),
 		       (p->cmt == Binary));
-	    printf("%s\n", name);
+	    show_quoted(name);
 	}
+	printf("\n");
     } else if (names_only) {
 	printf("%s\n", name);
     } else {
 	printf("%s ", comment_opt);
 	if (max_name_wide > 0
 	    && max_name_wide < min_name_wide
-	    && max_name_wide < ((width = (int) strlen(name)))) {
+	    && max_name_wide < ((width = (int) columns_of(name)))) {
 	    printf("%.*s", max_name_wide, name + (width - max_name_wide));
 	} else {
 	    width = ((max_name_wide > 0 && max_name_wide < min_name_wide)
 		     ? max_name_wide
 		     : min_name_wide);
-	    printf("%-*.*s", width, width, name);
+	    adjustwide(width, name);
+	    show_unquoted(name, width);
 	}
 	if (table_opt == 2) {
 	    putchar('|');
@@ -2282,7 +2733,7 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 		*lines += EqlOf(p);
 
 		if (unchanged) {
-		    int len = (int) strlen(p->name);
+		    int len = columns_of(p->name);
 		    if (min_name_wide < (len - p->base))
 			min_name_wide = (len - p->base);
 		}
@@ -2326,7 +2777,7 @@ summarize(void)
 
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
-	int len = (int) strlen(p->name);
+	int len = columns_of(p->name);
 
 	if (ignore_data(p))
 	    continue;
@@ -2440,7 +2891,7 @@ summarize(void)
 	count_unmodified_files(D_option, &files_equal, &total_eql);
 	if (unchanged) {
 	    for (p = all_data; p; p = p->link) {
-		int len = (int) strlen(p->name);
+		int len = columns_of(p->name);
 		if (longest_name < len)
 		    longest_name = len;
 		temp = TotalOf(p);
@@ -2541,17 +2992,17 @@ decompressor(Decompress which, const char *name)
     switch (which) {
     case dcBzip:
 	verb = GET_PROGRAM(BZCAT_PATH);
-	if (*verb == '\0') {
+	if (*verb == EOS) {
 	    verb = GET_PROGRAM(BZIP2_PATH);
 	    opts = "-dc";
 	}
 	break;
     case dcCompress:
 	verb = GET_PROGRAM(ZCAT_PATH);
-	if (*verb == '\0') {
+	if (*verb == EOS) {
 	    verb = GET_PROGRAM(UNCOMPRESS_PATH);
 	    opts = "-c";
-	    if (*verb == '\0') {
+	    if (*verb == EOS) {
 		/* not all compress's recognize the options, test this last */
 		verb = GET_PROGRAM(COMPRESS_PATH);
 		opts = "-dc";
@@ -2578,10 +3029,10 @@ decompressor(Decompress which, const char *name)
     case dcNone:
 	break;
     }
-    if (verb != 0 && *verb != '\0') {
+    if (verb != 0 && *verb != EOS) {
 	result = (char *) xmalloc(strlen(verb) + 10 + len);
 	sprintf(result, "%s %s", verb, opts);
-	if (*name != '\0') {
+	if (*name != EOS) {
 	    sprintf(result + strlen(result), " \"%s\"", name);
 	}
     }
@@ -2762,7 +3213,7 @@ getopt_value(void)
 {
     char *next = 0;
     long value = strtol(optarg, &next, 0);
-    if (next == 0 || *next != '\0') {
+    if (next == 0 || *next != EOS) {
 	(void) fflush(stdout);
 	fprintf(stderr, "expected a number, have '%s'\n", optarg);
 	exit(EXIT_FAILURE);
@@ -2776,7 +3227,18 @@ main(int argc, char *argv[])
     int j;
     char version[80];
 
-    max_width = 80;
+#if defined(HAVE_TCGETATTR) && defined(TIOCGWINSZ)
+    if (isatty(fileno(stdout))) {
+	struct winsize data;
+	if (ioctl(fileno(stdout), TIOCGWINSZ, &data) == 0) {
+	    max_width = data.ws_col;
+	}
+    }
+#endif
+
+#ifdef HAVE_MBSTOWCWIDTH
+    setlocale(LC_CTYPE, "");
+#endif
 
     while ((j = getopt_helper(argc, argv,
 			      "bcCdD:e:Ef:hkKlmn:N:o:p:qr:RsS:tTuvVw:", 'h', 'V'))
@@ -2863,7 +3325,7 @@ main(int argc, char *argv[])
 	    break;
 	case 'V':
 #ifndef	NO_IDENT
-	    if (!sscanf(Id, "%*s %*s %s", version))
+	    if (!sscanf(Id, "%*s %*s %30s", version))
 #endif
 		(void) strcpy(version, "?");
 	    printf("diffstat version %s\n", version);
@@ -2949,8 +3411,8 @@ main(int argc, char *argv[])
 		}
 		if (got == 5
 		    && !strncmp(sniff, "BZh", (size_t) 3)
-		    && isdigit((unsigned char) sniff[3])
-		    && isdigit((unsigned char) sniff[4])) {
+		    && isdigit(UC(sniff[3]))
+		    && isdigit(UC(sniff[4]))) {
 		    which = dcBzip;
 		}
 	    } else if (ch == ']') {	/* perhaps lzma */

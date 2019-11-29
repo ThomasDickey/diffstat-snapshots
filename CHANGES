@@ -1,4 +1,27 @@
--- $Id: CHANGES,v 1.98 2018/08/15 00:36:08 tom Exp $
+-- $Id: CHANGES,v 1.101 2019/11/29 20:59:03 tom Exp $
+
+2019/11/29 (diffstat 1.63)
+	+ eliminate fixed buffer when decoding range.
+
+	+ use locale in computing filename column-width.
+
+	+ improve parsing for git diffs.
+
+	+ use terminal-width as default for -w to tty.
+
+	+ minor fix in do_merging (Miloslaw Smyk).
+
+	+ improve relative-pathname matching in count_lines()
+
+	+ add a parsing-case for svn diff.
+
+	+ quote filenames in -t/-T output.
+
+	+ fix cppcheck warnings about sscanf.
+
+	+ update configure macros
+
+	+ update config.guess, config.sub
 
 2018/08/15 (diffstat 1.62)
 	+ improve checks for unmodified files when -S and -D options are
