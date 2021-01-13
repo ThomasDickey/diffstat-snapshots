@@ -1,0 +1,5 @@
+ /dev/null |    6 ------
+ a/hello.c |    2 +-
+ a/hello.o |binary
+ b/hello.c |    1 -
+ 4 files changed, 1 insertion(+), 8 deletions(-)

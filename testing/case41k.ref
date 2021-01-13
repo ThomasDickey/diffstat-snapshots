@@ -1,0 +1,8 @@
+ hello.c |    2 +-
+ hello.c |    1 +
+ hello.c |    0 
+ hello.c |    6 ++++++
+ hello.o |binary
+ hello.o |binary
+ hello.o |    0 
+ 7 files changed, 8 insertions(+), 1 deletion(-)
