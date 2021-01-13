@@ -1,4 +1,12 @@
--- $Id: CHANGES,v 1.101 2019/11/29 20:59:03 tom Exp $
+-- $Id: CHANGES,v 1.105 2021/01/13 00:18:10 tom Exp $
+
+2021/01/12 (diffstat 1.64)
+	+ recognize binary files mentioned in "git diff --binary", and
+	  "git log -p --binary" formatted files (report by Faheem Mitha).
+
+	+ update configure macros
+
+	+ update config.guess, config.sub
 
 2019/11/29 (diffstat 1.63)
 	+ eliminate fixed buffer when decoding range.
@@ -61,7 +69,7 @@
 	+ add -E option to filter escape-sequences, e.g., from colordiff
 	  (Ubuntu #1304262).
 
-	+ merge/adapt improvments to makefile and configure script from
+	+ merge/adapt improvements to makefile and configure script from
 	  openembedded.org (forwarded by Ross Burton).
 	  + remove unused $(libdir) from makefile "installdirs" target
 	  + amend definition in CF_POPEN_TEST to permit use of autoheader.

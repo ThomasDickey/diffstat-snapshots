@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2018,2019 by Thomas E. Dickey                               *
+ * Copyright 1994-2019,2021 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.63 2019/11/29 20:39:01 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.64 2021/01/13 00:28:32 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,7 @@ static const char *Id = "$Id: diffstat.c,v 1.63 2019/11/29 20:39:01 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		12 Jan 2021, check for git --binary diffs.
  *		29 Nov 2019, eliminate fixed buffer when decoding range.
  *		28 Nov 2019, use locale in computing filename column-width.
  *			     improve parsing for git diffs.
@@ -854,7 +855,8 @@ decode_range(char *s, int *first, int *second)
 	int count = 0;
 	int value[2];
 
-	value[count] = 0;
+	value[0] = 0;
+	value[1] = 0;
 	while (*s != EOS) {
 	    int ch = UC(*s);
 	    if (isdigit(ch)) {
@@ -1013,7 +1015,7 @@ do_merging(DATA * data, char *path, int *freed)
 		    if (reverse_opt) {
 			TRACE((".. no action @%d\n", __LINE__));
 		    } else {
-			target = trim_datapath(&data, len1 = len2, &local);
+			target = trim_datapath(&data, len2, &local);
 		    }
 		}
 	    } else if (len1 < len2) {
@@ -1091,7 +1093,7 @@ do_merging(DATA * data, char *path, int *freed)
 	}
     } else {
 	if (can_be_merged(source)) {
-	    TRACE(("** merge @%d\n", __LINE__));
+	    TRACE(("** %smerge @%d\n", merge_names ? "" : "do not ", __LINE__));
 	    if (merge_names
 		&& *target != EOS
 		&& prefix_opt < 0) {
@@ -1653,6 +1655,9 @@ do_file(FILE *fp, const char *default_name)
     int context = 1;
     int either = 0;
 
+    int first_ch;
+    int git_diff = 0;
+
     char *s;
 #if OPT_TRACE
     int line_no = 0;
@@ -1760,7 +1765,9 @@ do_file(FILE *fp, const char *default_name)
 	    finish_chunk(that);
 	    unified = 0;
 	    if (*buffer == '@') {
-		int old_base, new_base, old_size, new_size;
+		int old_base, new_base;
+		int old_size = 0;
+		int new_size = 0;
 		char *sp;
 
 		old_unify = new_unify = 0;
@@ -1768,7 +1775,7 @@ do_file(FILE *fp, const char *default_name)
 		    && (sp = decode_range(sp, &old_base, &old_size)) != NULL
 		    && (sp = match(sp, " +")) != NULL
 		    && (sp = decode_range(sp, &new_base, &new_size)) != NULL
-		    && (sp = match(sp, " @")) != NULL) {
+		    && match(sp, " @") != NULL) {
 		    old_unify = old_size;
 		    new_unify = new_size;
 		    unified = -1;
@@ -1871,11 +1878,51 @@ do_file(FILE *fp, const char *default_name)
 	    (void) memcpy(buffer, "***", (size_t) 3);
 	}
 
+	first_ch = *buffer;
+
+	/*
+	 * GIT binary diffs can contain blocks of data that might be confused
+	 * with the ordinary line-oriented sections in diff output.  Skip the
+	 * case statement if we are processing a GIT binary diff.
+	 */
+	switch (git_diff) {
+	default:
+	    break;
+	case 1:
+	    /* expect "index" */
+	    if (match(buffer, "index") != 0) {
+		git_diff = 2;
+		continue;
+	    } else {
+		git_diff = 0;
+	    }
+	    break;
+	case 2:
+	    /* perhaps "GIT binary patch" */
+	    if (match(buffer, "GIT binary patch") != 0) {
+		git_diff = 3;
+		that->cmt = Binary;
+		continue;
+	    } else if (match(buffer, "Binary files ") != 0) {
+		git_diff = 0;
+		that->cmt = Binary;
+		continue;
+	    } else {
+		git_diff = 0;
+	    }
+	    break;
+	case 3:
+	    /* had "GIT binary patch", wait for next "diff" line */
+	    if (first_ch != 'd')
+		continue;
+	    break;
+	}
+
 	/*
 	 * Use the first character of the input line to determine its
 	 * type:
 	 */
-	switch (*buffer) {
+	switch (first_ch) {
 	case 'O':		/* Only */
 	    CASE_TRACE();
 	    if (match(buffer, "Only in ")) {
@@ -1934,6 +1981,11 @@ do_file(FILE *fp, const char *default_name)
 		s = do_merging(that, s, &freed);
 		that = find_data(s);
 		ok = begin_data(that);
+		if (match(buffer, "diff --git ") != 0) {
+		    git_diff = 1;
+		} else {
+		    git_diff = 0;
+		}
 	    }
 	    break;
 
@@ -1972,7 +2024,7 @@ do_file(FILE *fp, const char *default_name)
 			&& (sp = match(sp, "\t")) != NULL
 			&& (sp = need_parens(sp)) != NULL
 			&& (sp = match(sp, "\t")) != NULL
-			&& (sp = need_parens(sp)) != NULL
+			&& need_parens(sp) != NULL
 			&& !version_num(b_fname))
 		    || ((sp = copy_notabs(b_fname, stars, length)) != NULL
 			&& (sp = match(sp, "\t")) != NULL
@@ -2026,11 +2078,11 @@ do_file(FILE *fp, const char *default_name)
 		    && (bars = match(bars, "#")) != NULL
 		    && (bars = copy_integer(&rev, bars)) != NULL
 		    && (((sp = match(bars, " - ")) != NULL
-			 && (sp = need_graphs(sp)) != NULL)
+			 && need_graphs(sp) != NULL)
 			|| (((sp = match(bars, " ")) != NULL
 			     && (sp = need_parens(sp)) != NULL
 			     && (sp = match(sp, " - ")) != NULL
-			     && (sp = need_graphs(sp)) != NULL)))
+			     && need_graphs(sp) != NULL)))
 		    && !version_num(b_fname)
 		    && !contain_any(b_fname, "*")
 		    && !edit_range(b_fname)) {

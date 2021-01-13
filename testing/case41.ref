@@ -1,0 +1,4 @@
+ b/hello.c |    8 +++++++-
+ b/hello.o |binary
+ hello.c   |    1 +
+ 3 files changed, 8 insertions(+), 1 deletion(-)
