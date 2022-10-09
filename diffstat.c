@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2019,2021 by Thomas E. Dickey                               *
+ * Copyright 1994-2021,2022 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.64 2021/01/13 00:28:32 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.65 2022/10/09 17:11:14 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.64 2021/01/13 00:28:32 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		09 Oct 2022, trim trailing '/' from directories.  Correct case
+ *			     where there is no unified-context.
  *		12 Jan 2021, check for git --binary diffs.
  *		29 Nov 2019, eliminate fixed buffer when decoding range.
  *		28 Nov 2019, use locale in computing filename column-width.
@@ -875,12 +877,19 @@ decode_range(char *s, int *first, int *second)
 	if (s != NULL) {
 	    *first = value[0];
 	    if (count == 0) {
-		*second = *first;	/* diffutils 2.7 does this */
+		*second = 1;
 	    } else {
 		*second = value[1];
 	    }
-	    TRACE(("** decode_range #%d first=%d, second=%d\n",
-		   count + 1, *first, *second));
+#if OPT_TRACE
+	    if (*second) {
+		TRACE(("** decode_range [%d..%d]\n",
+		       *first, *first + *second - 1));
+	    } else {
+		TRACE(("** decode_range [%d]\n",
+		       *first));
+	    }
+#endif
 	}
     }
     return s;
@@ -1931,9 +1940,14 @@ do_file(FILE *fp, const char *default_name)
 		for (s = path; *s != EOS; s++) {
 		    if (match(s, ": ")) {
 			found = 1;
-			*s++ = PATHSEP;
-			while ((s[0] = s[1]) != EOS)
-			    s++;
+			if ((s - path) >= 2 && s[-1] == PATHSEP) {
+			    while ((s[0] = s[2]) != EOS)
+				s++;
+			} else {
+			    *s++ = PATHSEP;
+			    while ((s[0] = s[1]) != EOS)
+				s++;
+			}
 			break;
 		    }
 		}

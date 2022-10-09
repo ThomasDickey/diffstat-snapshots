@@ -1,0 +1,12 @@
+ NEWS               |    9 ++++++++-
+ VERSION            |    2 +-
+ changelog          |   12 ++++++------
+ configure          |    4 ++--
+ configure.in       |    6 +++---
+ dist.mk            |    4 ++--
+ gen-pkgconfig.in   |    8 ++++++--
+ mingw-ncurses.nsi  |    4 ++--
+ mingw-ncurses.spec |    2 +-
+ ncurses.spec       |    2 +-
+ ncursest.spec      |    2 +-
+ 11 files changed, 33 insertions(+), 22 deletions(-)

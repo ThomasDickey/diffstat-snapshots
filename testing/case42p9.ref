@@ -1,0 +1,11 @@
+ case39k.ref |    1 +
+ case42.pat  |only
+ full.log    |only
+ full.txt    |only
+ full1.log   |only
+ full1.txt   |only
+ short.log   |only
+ short.txt   |only
+ short1.log  |only
+ short1.txt  |only
+ 10 files changed, 1 insertion(+)

@@ -1,0 +1,11 @@
+ testing2/case39k.ref |    1 +
+ testing/case42.pat   |only
+ testing/full1.log    |only
+ testing/full1.txt    |only
+ testing2/full.log    |only
+ testing2/full.txt    |only
+ testing/short1.log   |only
+ testing/short1.txt   |only
+ testing/short.log    |only
+ testing/short.txt    |only
+ 10 files changed, 1 insertion(+)

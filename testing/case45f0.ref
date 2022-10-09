@@ -1,0 +1,14 @@
+ NEWS                             |    9 	8 +	1 -	0 !
+ VERSION                          |    2 	1 +	1 -	0 !
+ configure                        |    4 	2 +	2 -	0 !
+ configure.in                     |    6 	3 +	3 -	0 !
+ dist.mk                          |    4 	2 +	2 -	0 !
+ misc/gen-pkgconfig.in            |    8 	6 +	2 -	0 !
+ package/debian-mingw/changelog   |    4 	2 +	2 -	0 !
+ package/debian-mingw64/changelog |    4 	2 +	2 -	0 !
+ package/debian/changelog         |    4 	2 +	2 -	0 !
+ package/mingw-ncurses.nsi        |    4 	2 +	2 -	0 !
+ package/mingw-ncurses.spec       |    2 	1 +	1 -	0 !
+ package/ncurses.spec             |    2 	1 +	1 -	0 !
+ package/ncursest.spec            |    2 	1 +	1 -	0 !
+ 13 files changed, 33 insertions(+), 22 deletions(-)

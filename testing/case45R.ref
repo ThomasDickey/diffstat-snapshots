@@ -1,0 +1,14 @@
+ --unified=2                                           |    4 ++--
+ ncurses-6.3-20221001/NEWS                             |    9 +--------
+ ncurses-6.3-20221001/VERSION                          |    2 +-
+ ncurses-6.3-20221001/configure.in                     |    6 +++---
+ ncurses-6.3-20221001/dist.mk                          |    4 ++--
+ ncurses-6.3-20221001/misc/gen-pkgconfig.in            |    8 ++------
+ ncurses-6.3-20221001/package/debian-mingw/changelog   |    4 ++--
+ ncurses-6.3-20221001/package/debian-mingw64/changelog |    4 ++--
+ ncurses-6.3-20221001/package/debian/changelog         |    4 ++--
+ ncurses-6.3-20221001/package/mingw-ncurses.nsi        |    4 ++--
+ ncurses-6.3-20221001/package/mingw-ncurses.spec       |    2 +-
+ ncurses-6.3-20221001/package/ncurses.spec             |    2 +-
+ ncurses-6.3-20221001/package/ncursest.spec            |    2 +-
+ 13 files changed, 22 insertions(+), 33 deletions(-)
