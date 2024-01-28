@@ -1,13 +1,13 @@
 Summary:  diffstat - make histogram from diff-output
 %define AppProgram diffstat
-%define AppVersion 1.65
-# $XTermId: diffstat.spec,v 1.16 2022/10/08 22:46:54 tom Exp $
+%define AppVersion 1.66
+# $XTermId: diffstat.spec,v 1.18 2024/01/26 09:26:58 tom Exp $
 Name: %{AppProgram}
 Version: %{AppVersion}
 Release: 1
 License: MIT
 Group: Applications/Development
-URL: ftp://invisible-island.net/%{AppProgram}
+URL: https://invisible-island.net/archives/%{AppProgram}
 Source0: %{AppProgram}-%{AppVersion}.tgz
 Packager: Thomas Dickey <dickey@invisible-island.net>
 
@@ -51,6 +51,9 @@ strip $RPM_BUILD_ROOT%{_bindir}/%{AppProgram}
 
 %changelog
 # each patch should add its ChangeLog entries here
+
+* Fri Jan 26 2024 Thomas Dickey
+- update URLs
 
 * Wed Aug 15 2018 Thomas Dickey
 - use recommended compiler-flags

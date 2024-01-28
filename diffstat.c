@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2021,2022 by Thomas E. Dickey                               *
+ * Copyright 1994-2023,2024 by Thomas E. Dickey                               *
  * All Rights Reserved.                                                       *
  *                                                                            *
  * Permission to use, copy, modify, and distribute this software and its      *
@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.65 2022/10/09 17:11:14 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.66 2024/01/28 21:04:23 tom Exp $";
 #endif
 
 /*
@@ -28,6 +28,8 @@ static const char *Id = "$Id: diffstat.c,v 1.65 2022/10/09 17:11:14 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		28 Jan 2024, fixes for stricter gcc warnings
+ *		01 Mar 2023, ignore ".git" directories, etc., in -S/-D options.
  *		09 Oct 2022, trim trailing '/' from directories.  Correct case
  *			     where there is no unified-context.
  *		12 Jan 2021, check for git --binary diffs.
@@ -369,6 +371,8 @@ extern int pclose(FILE *);
 #define TRACE(p)		/*nothing */
 #endif
 
+#define NonNull(s)   (((s) != NULL ? (s) : "<null>"))
+
 #define contain_any(s,reject) (strcspn(s,reject) != strlen(s))
 #define maximum(a,b) ((a) < (b) ? (b) : (a))
 
@@ -405,7 +409,8 @@ typedef enum {
 
 typedef struct _data {
     struct _data *link;
-    char *name;			/* the filename */
+    char *original;		/* the original filename */
+    char *modified;		/* the modified filename */
     int copy;			/* true if filename is const-literal */
     int base;			/* beginning of name if -p option used */
     Comment cmt;
@@ -595,45 +600,50 @@ compare_data(const void *a, const void *b)
     const DATA *q = (const DATA *) b;
     return ((p != NULL)
 	    ? ((q != NULL)
-	       ? strcmp(p->name + p->base, q->name + q->base)
+	       ? strcmp(p->modified + p->base, q->modified + q->base)
 	       : 1)
 	    : -1);
 }
 
 static void
-init_data(DATA * data, const char *name, int copy, int base)
+init_data(DATA * data, const char *original, const char *modified, int copy, int base)
 {
     memset(data, 0, sizeof(*data));
-    data->name = (char *) name;
+    data->original = (char *) original;
+    data->modified = (char *) modified;
     data->copy = copy;
     data->base = base;
     data->cmt = Normal;
 }
 
 static DATA *
-new_data(const char *name, int base)
+new_data(const char *original, const char *modified, int base)
 {
     DATA *r = (DATA *) xmalloc(sizeof(DATA));
 
-    init_data(r, new_string(name), 0, base);
+    if (original == NULL) {
+	TRACE(("new_data: no original for %s\n", modified));
+	original = modified;	/* FIXME */
+    }
+    init_data(r, new_string(original), new_string(modified), 0, base);
 
     return r;
 }
 
 #ifdef HAVE_TSEARCH
 static DATA *
-add_tsearch_data(const char *name, int base)
+add_tsearch_data(const char *original, const char *modified, int base)
 {
     DATA find;
     DATA *result;
     void *pp;
 
-    init_data(&find, name, 1, base);
+    init_data(&find, NULL, modified, 1, base);
     if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
 	result = *(DATA **) pp;
 	return result;
     }
-    result = new_data(name, base);
+    result = new_data(original, modified, base);
     (void) tsearch(result, &sorted_data, compare_data);
     result->link = all_data;
     all_data = result;
@@ -675,16 +685,16 @@ skip_prefix(const char *name, int prefix, int *base)
 }
 
 static DATA *
-find_data(const char *name)
+find_data(const char *original, const char *modified)
 {
     DATA *r;
     int base = 0;
 
-    TRACE(("** find_data(%s)\n", name));
+    TRACE(("** find_data(%s => %s)\n", NonNull(original), NonNull(modified)));
 
     /* Compute the base offset if the prefix option is used */
     if (prefix_opt >= 0) {
-	(void) skip_prefix(name, prefix_opt, &base);
+	(void) skip_prefix(modified, prefix_opt, &base);
     }
 
     /* Insert into sorted list (usually sorted).  If we are not sorting or
@@ -697,7 +707,7 @@ find_data(const char *name)
      */
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
-	r = add_tsearch_data(name, base);
+	r = add_tsearch_data(original, modified, base);
     } else
 #endif
     {
@@ -705,7 +715,7 @@ find_data(const char *name)
 	DATA find;
 	DATA *q;
 
-	init_data(&find, name, 1, base);
+	init_data(&find, original, modified, 1, base);
 	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
 	    int cmp = compare_data(p, &find);
 	    if (merge_names && (cmp == 0))
@@ -713,7 +723,7 @@ find_data(const char *name)
 	    if (sort_names && (cmp > 0))
 		break;
 	}
-	r = new_data(name, base);
+	r = new_data(original, modified, base);
 	if (q != 0)
 	    q->link = r;
 	else
@@ -733,7 +743,7 @@ delink(DATA * data)
 {
     DATA *p, *q;
 
-    TRACE(("** delink '%s'\n", data->name));
+    TRACE(("** delink '%s'\n", data->modified));
 
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
@@ -747,8 +757,10 @@ delink(DATA * data)
 		q->link = p->link;
 	    else
 		all_data = p->link;
-	    if (!p->copy)
-		free(p->name);
+	    if (!p->copy) {
+		free(p->original);
+		free(p->modified);
+	    }
 	    free(p);
 	    return 1;
 	}
@@ -920,7 +932,7 @@ can_be_merged(const char *path)
 static int
 is_leaf(const char *theLeaf, const char *path)
 {
-    char *s;
+    const char *s;
 
     if (strchr(theLeaf, PATHSEP) == 0
 	&& (s = strrchr(path, PATHSEP)) != 0
@@ -932,8 +944,9 @@ is_leaf(const char *theLeaf, const char *path)
 static char *
 trim_datapath(DATA ** datap, size_t length, int *localp)
 {
-    char *target = (*datap)->name;
+    char *target = (*datap)->modified;
 
+    (void) localp;
 #ifdef HAVE_TSEARCH
     /*
      * If we are using tsearch(), make a local copy of the data
@@ -945,8 +958,8 @@ trim_datapath(DATA ** datap, size_t length, int *localp)
     if (use_tsearch) {
 	char *trim = new_string(target);
 	trim[length] = EOS;
-	*datap = add_tsearch_data(trim, (*datap)->base);
-	target = (*datap)->name;
+	*datap = add_tsearch_data(NULL, trim, (*datap)->base);
+	target = (*datap)->modified;
 	free(trim);
 	*localp = 1;
     } else
@@ -987,13 +1000,15 @@ compare_tails(const char *target, const char *source, int *diff)
 static char *
 do_merging(DATA * data, char *path, int *freed)
 {
-    char *target = reverse_opt ? path : data->name;
-    char *source = reverse_opt ? data->name : path;
+    char *target = reverse_opt ? path : data->modified;
+    char *source = reverse_opt ? data->modified : path;
     char *result = source;
     int diff;
 
-    TRACE(("** do_merging(\"%s\",\"%s\") diffs:%d\n",
-	   data->name, path, HadDiffs(data)));
+    TRACE(("** do_merging(\"%s\" -> \"%s\",\"%s\") diffs:%d\n",
+	   NonNull(data->original),
+	   NonNull(data->modified),
+	   path, HadDiffs(data)));
 
     *freed = 0;
     if (!HadDiffs(data)) {
@@ -1003,6 +1018,7 @@ do_merging(DATA * data, char *path, int *freed)
 	    if (reverse_opt) {
 		TRACE((".. no action @%d\n", __LINE__));
 	    } else {
+		TRACE((".. will delink @%d\n", __LINE__));
 		*freed = delink(data);
 	    }
 	} else if (can_be_merged(target)
@@ -1070,6 +1086,7 @@ do_merging(DATA * data, char *path, int *freed)
 		if (reverse_opt) {
 		    TRACE((".. no action @%d\n", __LINE__));
 		} else {
+		    TRACE((".. will delink @%d\n", __LINE__));
 		    *freed = delink(data);
 		}
 	    }
@@ -1122,9 +1139,12 @@ do_merging(DATA * data, char *path, int *freed)
 static int
 begin_data(const DATA * p)
 {
-    TRACE(("...begin_data(%s)\n", p->name));
-    if (!can_be_merged(p->name)
-	&& strchr(p->name, PATHSEP) != 0) {
+    TRACE(("...begin_data(\"%s\" -> \"%s\")\n",
+	   NonNull(p->original),
+	   NonNull(p->modified)));
+
+    if (!can_be_merged(p->modified)
+	&& strchr(p->modified, PATHSEP) != 0) {
 	TRACE(("** begin_data:HAVE_PATH\n"));
 	return HAVE_PATH;
     }
@@ -1241,7 +1261,7 @@ get_line(char **buffer, size_t *have, FILE *fp)
 static const char *
 data_filename(const DATA * p)
 {
-    return p ? (p->name + (prefix_opt >= 0 ? p->base : prefix_len)) : "";
+    return p ? (p->modified + (prefix_opt >= 0 ? p->base : prefix_len)) : "";
 }
 
 static int
@@ -1273,20 +1293,20 @@ count_lines2(const char *filename)
  * Count the (new)lines in a file, return -1 if the file is not found.
  */
 static int
-count_lines(DATA * p)
+count_lines(const DATA * p)
 {
     int result = -1;
     char *filename = 0;
     const char *filetail = data_filename(p);
-    size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->name);
+    size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->modified);
 
-    if ((filename = malloc(want)) != 0) {
+    if ((filename = xmalloc(want)) != 0) {
 	int merge = 0;
 
 	if (path_dest && *path_opt != EOS && *filetail != PATHSEP) {
 	    size_t path_len = strlen(path_opt);
 	    size_t tail_len = strlen(filetail);
-	    char *tail_sep = strchr(filetail, PATHSEP);
+	    const char *tail_sep = strchr(filetail, PATHSEP);
 	    size_t n;
 
 	    for (n = path_len - 1; (int) n >= 0; --n) {
@@ -1328,7 +1348,7 @@ count_lines(DATA * p)
 	}
 	if (!merge) {
 	    if (!path_opt) {
-		strcpy(filename, p->name);
+		strcpy(filename, p->modified);
 	    } else {
 		sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
 	    }
@@ -1562,7 +1582,7 @@ copy_p4_name(char *target, char *source, size_t limit)
 }
 
 static char *
-copy_integer(int *target, char *source)
+copy_integer(int *target, const char *source)
 {
     char *next = NULL;
     long value = strtol(source, &next, 10);
@@ -1635,7 +1655,7 @@ need_parens(char *source)
 }
 
 #define date_delims(a,b) (((a)=='/' && (b)=='/') || ((a) == '-' && (b) == '-'))
-#define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->name : ""))
+#define CASE_TRACE() TRACE(("** handle case for '%c' %d:%s\n", *buffer, ok, that ? that->modified : ""))
 
 static void
 do_file(FILE *fp, const char *default_name)
@@ -1672,7 +1692,7 @@ do_file(FILE *fp, const char *default_name)
     int line_no = 0;
 #endif
 
-    init_data(&dummy, "", 1, 0);
+    init_data(&dummy, "", "", 1, 0);
 
     fixed_buffer(&buffer, fixed = length = BUFSIZ);
     fixed_buffer(&b_fname, length);
@@ -1728,7 +1748,7 @@ do_file(FILE *fp, const char *default_name)
 	 */
 	if (line_no == 1 && !strncmp(buffer, "@@", (size_t) 2)) {
 	    unified = 2;
-	    that = find_data(default_name);
+	    that = find_data(default_name, default_name);
 	    ok = begin_data(that);
 	}
 
@@ -1753,7 +1773,7 @@ do_file(FILE *fp, const char *default_name)
 	} else if (line_no == 1 && !strcmp(buffer, only_stars)) {
 	    TRACE(("** begin context chunk\n"));
 	    context = 2;
-	    that = find_data(default_name);
+	    that = find_data(default_name, default_name);
 	    ok = begin_data(that);
 	} else if (context == 2 && match(buffer, "*** ")) {
 	    context = 1;
@@ -1806,11 +1826,11 @@ do_file(FILE *fp, const char *default_name)
 		&& prev != that
 		&& InsOf(that) == 0
 		&& DelOf(that) == 0
-		&& strcmp(prev->name, that->name)) {
+		&& strcmp(prev->modified, that->modified)) {
 		TRACE(("?? giveup on %ld/%ld %s\n", InsOf(that),
-		       DelOf(that), that->name));
+		       DelOf(that), that->modified));
 		TRACE(("?? revert to %ld/%ld %s\n", InsOf(prev),
-		       DelOf(prev), prev->name));
+		       DelOf(prev), prev->modified));
 		(void) delink(that);
 		that = prev;
 		update_chunk(that, cDelete);
@@ -1858,7 +1878,7 @@ do_file(FILE *fp, const char *default_name)
 		       old_base, old_base + old_dft - 1,
 		       new_base, new_base + new_dft - 1));
 		finish_chunk(that);
-		that = find_data("unknown");
+		that = find_data("unknown", "unknown");
 		ok = begin_data(that);
 	    }
 	}
@@ -1899,7 +1919,9 @@ do_file(FILE *fp, const char *default_name)
 	    break;
 	case 1:
 	    /* expect "index" */
-	    if (match(buffer, "index") != 0) {
+	    if (match(buffer, "index") != 0
+		|| match(buffer, "rename") != 0
+		|| match(buffer, "similarity") != 0) {
 		git_diff = 2;
 		continue;
 	    } else {
@@ -1916,8 +1938,6 @@ do_file(FILE *fp, const char *default_name)
 		git_diff = 0;
 		that->cmt = Binary;
 		continue;
-	    } else {
-		git_diff = 0;
 	    }
 	    break;
 	case 3:
@@ -1954,7 +1974,7 @@ do_file(FILE *fp, const char *default_name)
 		if (found) {
 		    blip('.');
 		    finish_chunk(that);
-		    that = find_data(path);
+		    that = find_data(NULL, path);
 		    that->cmt = Only;
 		    ok = HAVE_NOTHING;
 		}
@@ -1974,7 +1994,7 @@ do_file(FILE *fp, const char *default_name)
 		blip('.');
 		finish_chunk(that);
 		s = do_merging(that, s, &freed);
-		that = find_data(s);
+		that = find_data(NULL, s);
 		ok = begin_data(that);
 	    }
 	    break;
@@ -1983,23 +2003,41 @@ do_file(FILE *fp, const char *default_name)
 	    CASE_TRACE();
 	    if ((s = match(buffer, "diff ")) != 0
 		&& *(s = skip_options(s)) != EOS) {
+		char *original = NULL;
+		char *modified = NULL;
+		char *to_blank = NULL;
 		if (reverse_opt) {
-		    *skip_filename(s) = EOS;
+		    modified = s;
+		    to_blank = skip_filename(s);
+		    original = skip_blanks(to_blank);
+		    *to_blank = EOS;
 		} else {
-		    s = skip_filename(s);
-		    s = skip_blanks(s);
+		    original = s;
+		    to_blank = skip_filename(s);
+		    s = skip_blanks(to_blank);
+		    modified = s;
+		    *to_blank = EOS;
 		}
-		dequote(s);
-		blip('.');
-		finish_chunk(that);
-		s = do_merging(that, s, &freed);
-		that = find_data(s);
-		ok = begin_data(that);
 		if (match(buffer, "diff --git ") != 0) {
+		    size_t old_len = strlen(original);
+		    size_t new_len = strlen(modified);
+		    char *temp = xmalloc(old_len + new_len + 1);
 		    git_diff = 1;
+		    if (copy_git_name(temp, original, old_len) != NULL)
+			original = new_string(temp);
+		    if (copy_git_name(temp, modified, new_len) != NULL)
+			modified = new_string(temp);
+		    free(temp);
 		} else {
 		    git_diff = 0;
+		    dequote(original);
+		    dequote(modified);
 		}
+		blip('.');
+		finish_chunk(that);
+		modified = do_merging(that, modified, &freed);
+		that = find_data(original, modified);
+		ok = begin_data(that);
 	    }
 	    break;
 
@@ -2068,13 +2106,31 @@ do_file(FILE *fp, const char *default_name)
 			&& !contain_any(b_fname, "*")
 			&& !edit_range(b_fname))
 		    ) {
+		    const char *git_source = NULL;
+
 		    prev = that;
 		    finish_chunk(that);
 		    dequote(b_fname);
+
+		    /*
+		     * Git diff's may reflect a renamed file.  For this case,
+		     * we want to keep track of the original file, for the
+		     * -S/-D comparison.
+		     */
+		    if ((marker > 1) && git_diff) {
+			char *tt = that->original;
+			if (strlen(tt) > 2
+			    && (!strncmp("a/", tt, 2)
+				|| !strncmp("b/", tt, 2))) {
+			    tt += 2;
+			}
+			git_source = new_string(tt);
+		    }
+
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
-		    that = find_data(s);
+		    that = find_data(git_source, s);
 		    ok = begin_data(that);
 		    TRACE(("** after merge:%d:%s\n", ok, s));
 		}
@@ -2107,7 +2163,7 @@ do_file(FILE *fp, const char *default_name)
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
 			prev = 0;
-		    that = find_data(s);
+		    that = find_data(NULL, s);
 		    ok = begin_data(that);
 		    TRACE(("** after merge:%d:%s\n", ok, s));
 		}
@@ -2168,7 +2224,7 @@ do_file(FILE *fp, const char *default_name)
 		    }
 		    blip('.');
 		    finish_chunk(that);
-		    that = find_data(s);
+		    that = find_data(NULL, s);
 		    that->cmt = Either;
 		    ok = HAVE_NOTHING;
 		    either = 1;
@@ -2196,7 +2252,7 @@ do_file(FILE *fp, const char *default_name)
 		    }
 		    blip('.');
 		    finish_chunk(that);
-		    that = find_data(s);
+		    that = find_data(NULL, s);
 		    that->cmt = Binary;
 		    ok = HAVE_NOTHING;
 		}
@@ -2693,19 +2749,19 @@ path_length(const char *path)
  * both left-/right-paths for each file; only the right-path is currently used.
  */
 static Comment
-resolve_only(DATA * p)
+resolve_only(const DATA * p)
 {
     Comment result = p->cmt;
     if (result == Only && !reverse_opt) {
 	DATA *q;
-	size_t len1 = path_length(p->name);
+	size_t len1 = path_length(p->modified);
 	if (len1 != 0) {
 	    for (q = all_data; q; q = q->link) {
 		result = OnlyLeft;
 		if (q->cmt == Normal || q->cmt == Binary) {
-		    size_t len2 = path_length(q->name);
+		    size_t len2 = path_length(q->modified);
 		    if (len2 >= len1) {
-			if (!strncmp(p->name, q->name, len1)) {
+			if (!strncmp(p->modified, q->modified, len1)) {
 			    result = OnlyRight;
 			    break;
 			}
@@ -2729,15 +2785,20 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	DIR *dp = opendir(pathname);
 
 	if (dp != 0) {
-	    struct dirent *de;
+	    const struct dirent *de;
 
 	    while ((de = readdir(dp)) != 0) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 		    continue;
-		name = malloc(strlen(pathname) + 2 + strlen(de->d_name));
+		name = xmalloc(strlen(pathname) + 2 + strlen(de->d_name));
 		if (name != 0) {
 		    sprintf(name, "%s%c%s", pathname, PATHSEP, de->d_name);
-		    count_unmodified_files(name, files, lines);
+		    if ((strcmp(de->d_name, ".git")
+			 && strcmp(de->d_name, ".svn")
+			 && strcmp(de->d_name, "CVS")
+			 && strcmp(de->d_name, "RCS")) || !is_dir(name)) {
+			count_unmodified_files(name, files, lines);
+		    }
 		    free(name);
 		}
 	    }
@@ -2749,8 +2810,13 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	 * corresponding path for the source directory.  Then check if
 	 * that path appears in the list of modified files.
 	 */
-	const char *ref_name = ((all_data && !unchanged) ? all_data->name : pathname);
+	const char *ref_name = ((all_data && !unchanged)
+				? all_data->modified
+				: pathname);
 	char *source = 0;
+
+	if (ref_name == NULL)
+	    return;
 
 	if (prefix_opt >= 0) {
 	    int level_s = count_prefix(path_opt);
@@ -2759,9 +2825,10 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 
 	    (void) skip_prefix(pathname, level_s + 1, &base_s);
 	    (void) skip_prefix(ref_name, level_s + 1, &base_d);
-	    name = malloc(2 + strlen(pathname) + strlen(ref_name));
+	    name = xmalloc(2 + strlen(pathname) + strlen(ref_name));
 	    sprintf(name, "%.*s%s", base_d, ref_name, base_s + pathname);
-	    source = malloc(strlen(ref_name) + 2 + strlen(pathname) + strlen(S_option));
+	    source = xmalloc(strlen(ref_name) + 2 + strlen(pathname) +
+			     strlen(S_option));
 	    sprintf(source, "%s%c%s",
 		    S_option,
 		    PATHSEP,
@@ -2770,12 +2837,13 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	    const char *mark = unchanged ? ref_name : data_filename(all_data);
 	    int skip = 1 + (int) strlen(path_opt);
 
-	    name = malloc(strlen(ref_name) + 2 + strlen(pathname));
+	    name = xmalloc(strlen(ref_name) + 2 + strlen(pathname));
 	    sprintf(name, "%.*s%s",
 		    (int) (mark - ref_name),
 		    ref_name,
 		    pathname + skip);
-	    source = malloc(strlen(ref_name) + 2 + strlen(pathname) + strlen(S_option));
+	    source = xmalloc(strlen(ref_name) + 2 + strlen(pathname) +
+			     strlen(S_option));
 	    sprintf(source, "%s%c%.*s%s",
 		    S_option,
 		    PATHSEP,
@@ -2788,18 +2856,18 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	    int found = 0;
 
 	    for (p = all_data; p != 0 && !found; p = p->link) {
-		if (!strcmp(name, p->name)) {
+		if (!strcmp(name, p->modified)) {
 		    found = 1;
 		}
 	    }
 	    if (!found) {
-		p = find_data(name);
+		p = find_data(NULL, name);
 		*files += 1;
 		EqlOf(p) = count_lines(p);
 		*lines += EqlOf(p);
 
 		if (unchanged) {
-		    int len = columns_of(p->name);
+		    int len = columns_of(p->modified);
 		    if (min_name_wide < (len - p->base))
 			min_name_wide = (len - p->base);
 		}
@@ -2843,7 +2911,7 @@ summarize(void)
 
     plot_scale = 0;
     for (p = all_data; p; p = p->link) {
-	int len = columns_of(p->name);
+	int len = columns_of(p->modified);
 
 	if (ignore_data(p))
 	    continue;
@@ -2866,9 +2934,9 @@ summarize(void)
 	    if (len < prefix_len || prefix_len < 0)
 		prefix_len = len;
 	    while (prefix_len > 0) {
-		if (p->name[prefix_len - 1] != PATHSEP)
+		if (p->modified[prefix_len - 1] != PATHSEP)
 		    prefix_len--;
-		else if (strncmp(all_data->name, p->name, (size_t) prefix_len))
+		else if (strncmp(all_data->modified, p->modified, (size_t) prefix_len))
 		    prefix_len--;
 		else
 		    break;
@@ -2957,7 +3025,7 @@ summarize(void)
 	count_unmodified_files(D_option, &files_equal, &total_eql);
 	if (unchanged) {
 	    for (p = all_data; p; p = p->link) {
-		int len = columns_of(p->name);
+		int len = columns_of(p->modified);
 		if (longest_name < len)
 		    longest_name = len;
 		temp = TotalOf(p);
@@ -3053,7 +3121,6 @@ decompressor(Decompress which, const char *name)
     const char *verb = 0;
     const char *opts = "";
     char *result = 0;
-    size_t len = strlen(name);
 
     switch (which) {
     case dcBzip:
@@ -3096,7 +3163,7 @@ decompressor(Decompress which, const char *name)
 	break;
     }
     if (verb != 0 && *verb != EOS) {
-	result = (char *) xmalloc(strlen(verb) + 10 + len);
+	result = (char *) xmalloc(strlen(verb) + 10 + strlen(name));
 	sprintf(result, "%s %s", verb, opts);
 	if (*name != EOS) {
 	    sprintf(result + strlen(result), " \"%s\"", name);
@@ -3236,6 +3303,7 @@ usage(FILE *fp)
 	"  -n NUM  specify minimum width for the filenames (default: auto)",
 	"  -N NUM  specify maximum width for the filenames (default: auto)",
 	"  -o FILE redirect standard output to FILE",
+	"  -O      inspect only files listed in diff for -S/-D options",
 	"  -p NUM  specify number of pathname-separators to strip (default: common)",
 	"  -q      suppress the \"0 files changed\" message for empty diffs",
 	"  -r NUM  specify rounding for histogram (0=none, 1=simple, 2=adjusted)",
@@ -3287,6 +3355,26 @@ getopt_value(void)
     return (int) value;
 }
 
+#define OPTIONS "\
+b\
+cC\
+dD:\
+e:E\
+f:\
+h\
+kK\
+l\
+m\
+n:N:\
+o:\
+p:\
+q\
+r:R\
+sS:\
+tT\
+uv\
+Vw:"
+
 int
 main(int argc, char *argv[])
 {
@@ -3306,8 +3394,7 @@ main(int argc, char *argv[])
     setlocale(LC_CTYPE, "");
 #endif
 
-    while ((j = getopt_helper(argc, argv,
-			      "bcCdD:e:Ef:hkKlmn:N:o:p:qr:RsS:tTuvVw:", 'h', 'V'))
+    while ((j = getopt_helper(argc, argv, OPTIONS, 'h', 'V'))
 	   != -1) {
 	switch (j) {
 	case 'b':
@@ -3429,7 +3516,7 @@ main(int argc, char *argv[])
     if (optind < argc) {
 	while (optind < argc) {
 	    FILE *fp;
-	    char *name = argv[optind++];
+	    const char *name = argv[optind++];
 #ifdef HAVE_POPEN
 	    char *command = is_compressed(name);
 	    if (command != 0) {

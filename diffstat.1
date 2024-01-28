@@ -1,5 +1,5 @@
 .\"*****************************************************************************
-.\" Copyright 1994-2019,2022 by Thomas E. Dickey                               *
+.\" Copyright 1994-2022,2024 by Thomas E. Dickey                               *
 .\" All Rights Reserved.                                                       *
 .\"                                                                            *
 .\" Permission to use, copy, modify, and distribute this software and its      *
@@ -18,14 +18,24 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
 .\" IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
 .\"*****************************************************************************
-.\" $Id: diffstat.1,v 1.41 2022/10/08 22:59:28 tom Exp $
-.ie \n(.g .ds `` \(lq
-.el       .ds `` ``
-.ie \n(.g .ds '' \(rq
-.el       .ds '' ''
-.TH DIFFSTAT 1
+.\" $Id: diffstat.1,v 1.42 2024/01/28 11:41:40 tom Exp $
+.TH DIFFSTAT 1 2024-01-28 "1.66" "User commands"
+.ie \n(.g \{\
+.ds `` \(lq
+.ds '' \(rq
+.ds '  \(aq
+.\}
+.el \{\
+.ie t .ds `` ``
+.el   .ds `` ""
+.ie t .ds '' ''
+.el   .ds '' ""
+.ie t .ds '  \(aq
+.el   .ds '  '
+.\}
 .SH NAME
-\fBdiffstat\fP \- make histogram from diff-output
+\fBdiffstat\fP \-
+make histogram from diff-output
 .SH SYNOPSIS
 \fBdiffstat\fI [options] [file-specifications]\fR
 .SH DESCRIPTION
@@ -238,7 +248,6 @@ The default is 80 columns,
 unless the output is to a terminal.
 In that case, the default width is the terminal's width.
 .SH ENVIRONMENT
-.PP
 \fBDiffstat\fP runs in a POSIX environment.
 .PP
 You can override the compiled-in paths of programs used for decompressing
@@ -261,10 +270,8 @@ DIFFSTAT_ZCAT_PATH
 However, \fBdiffstat\fP assumes that the resulting program uses the
 same command-line options, e.g., "\-c" to decompress to the standard output.
 .SH FILES
-.PP
 \fBDiffstat\fP is a single binary module, which uses no auxiliary files.
 .SH BUGS
-.PP
 \fBDiffstat\fP makes a lot of assumptions
 about the format of \fBdiff\fP's output.
 .PP
@@ -277,10 +284,8 @@ There's no easy way to determine the degree of overlap between the
 "before" and "after" displays of modified lines.
 \fBdiffstat\fP simply counts the number of inserted and deleted lines
 to approximate modified lines for the \fB\-m\fP option.
+.SH AUTHORS
+Thomas Dickey <dickey@invisible-island.net>.
 .SH SEE ALSO
-.PP
 .BR diff (1),
 .BR patch (1).
-.SH AUTHOR
-.PP
-Thomas Dickey <dickey@invisible-island.net>.

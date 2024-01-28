@@ -1,4 +1,11 @@
--- $Id: CHANGES,v 1.108 2022/10/09 17:51:40 tom Exp $
+-- $Id: CHANGES,v 1.112 2024/01/28 20:43:14 tom Exp $
+
+2024/01/28 (diffstat 1.66)
+	+ improve handling of git diff's
+
+	+ update install-sh
+
+	+ improve configure script checks, reducing compiler warnings
 
 2022/10/09 (diffstat 1.65)
 	+ correct case where there is no unified-context.
@@ -134,7 +141,7 @@
 	+ update config.guess, config.sub
 
 	+ add logic to handle SVN diffs when the pathnames contain spaces
-	  (patch by Stuart Prescott, Debian #675475).
+	  (patch by Stuart Prescott, Debian #675465).
 
 	+ fix typo in package/debian/control
 

@@ -1,4 +1,4 @@
 version=3
 
-opts=passive ftp://invisible-island.net/cproto/cproto-(\d+)\.tgz \
+opts=passive https://invisible-island.net/archives/diffstat-(\d+)\.tgz \
  debian  uupdate

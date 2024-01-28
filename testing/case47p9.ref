@@ -1,0 +1,7 @@
+ cdialog-dev.install       |   11 ++++----
+ cdialog.install           |    9 ++++---
+ cdialog.lintian-overrides |    2 -
+ headers-sh.in             |   57 +++++++++++++++++++++++++++++++++++++++++-----
+ inputbox6-utf8            |    4 ++-
+ makefile.inn              |   14 +++++------
+ 6 files changed, 74 insertions(+), 23 deletions(-)

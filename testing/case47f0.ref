@@ -1,0 +1,7 @@
+ headers-sh.in                            |   57 	52 +	5 -	0 !
+ package/debian/cdialog-dev.install       |   11 	6 +	5 -	0 !
+ package/debian/cdialog.install           |    9 	5 +	4 -	0 !
+ package/debian/cdialog.lintian-overrides |    2 	1 +	1 -	0 !
+ po/makefile.inn                          |   14 	7 +	7 -	0 !
+ samples/inputbox6-utf8                   |    4 	3 +	1 -	0 !
+ 6 files changed, 74 insertions(+), 23 deletions(-)

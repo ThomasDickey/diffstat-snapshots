@@ -1,0 +1,7 @@
+ headers.sh                               |   57 ++-----------------------------
+ install.sh                               |   11 ++---
+ package/debian/cdialog.links             |    9 ++--
+ package/debian/cdialog.lintian-overrides |    2 -
+ po/Makefile.inn                          |   14 +++----
+ samples/inputbox6                        |    4 --
+ 6 files changed, 23 insertions(+), 74 deletions(-)
