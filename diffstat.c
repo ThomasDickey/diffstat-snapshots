@@ -1,26 +1,32 @@
 /******************************************************************************
  * Copyright 1994-2023,2024 by Thomas E. Dickey                               *
- * All Rights Reserved.                                                       *
  *                                                                            *
- * Permission to use, copy, modify, and distribute this software and its      *
- * documentation for any purpose and without fee is hereby granted, provided  *
- * that the above copyright notice appear in all copies and that both that    *
- * copyright notice and this permission notice appear in supporting           *
- * documentation, and that the name of the above listed copyright holder(s)   *
- * not be used in advertising or publicity pertaining to distribution of the  *
- * software without specific, written prior permission.                       *
+ * Permission is hereby granted, free of charge, to any person obtaining a    *
+ * copy of this software and associated documentation files (the "Software"), *
+ * to deal in the Software without restriction, including without limitation  *
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,   *
+ * and/or sell copies of the Software, and to permit persons to whom the      *
+ * Software is furnished to do so, subject to the following conditions:       *
  *                                                                            *
- * THE ABOVE LISTED COPYRIGHT HOLDER(S) DISCLAIM ALL WARRANTIES WITH REGARD   *
- * TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND  *
- * FITNESS, IN NO EVENT SHALL THE ABOVE LISTED COPYRIGHT HOLDER(S) BE LIABLE  *
- * FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES          *
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN      *
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR *
- * IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.                *
+ * The above copyright notice and this permission notice shall be included in *
+ * all copies or substantial portions of the Software.                        *
+ *                                                                            *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR *
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,   *
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL   *
+ * THE ABOVE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER      *
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING    *
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER        *
+ * DEALINGS IN THE SOFTWARE.                                                  *
+ *                                                                            *
+ * Except as contained in this notice, the name(s) of the above copyright     *
+ * holders shall not be used in advertising or otherwise to promote the sale, *
+ * use or other dealings in this Software without prior written               *
+ * authorization.                                                             *
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.66 2024/01/28 21:04:23 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.67 2024/11/11 13:01:06 tom Exp $";
 #endif
 
 /*
@@ -28,6 +34,7 @@ static const char *Id = "$Id: diffstat.c,v 1.66 2024/01/28 21:04:23 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		11 Nov 2024, add decompression for zstd
  *		28 Jan 2024, fixes for stricter gcc warnings
  *		01 Mar 2023, ignore ".git" directories, etc., in -S/-D options.
  *		09 Oct 2022, trim trailing '/' from directories.  Correct case
@@ -332,6 +339,10 @@ extern int pclose(FILE *);
 #define ZCAT_PATH ""
 #endif
 
+#ifndef ZSTD_PATH
+#define ZSTD_PATH ""
+#endif
+
 /******************************************************************************/
 
 #if defined(__MINGW32__) || defined(WIN32)
@@ -428,6 +439,7 @@ typedef enum {
     dcLzma,
     dcPack,
     dcXz,
+    dcZstd,
     dcEmpty
 } Decompress;
 
@@ -3157,6 +3169,10 @@ decompressor(Decompress which, const char *name)
 	verb = GET_PROGRAM(XZ_PATH);
 	opts = "-dc";
 	break;
+    case dcZstd:
+	verb = GET_PROGRAM(ZSTD_PATH);
+	opts = "-qdcf";
+	break;
     case dcEmpty:
 	/* FALLTHRU */
     case dcNone:
@@ -3178,18 +3194,24 @@ is_compressed(const char *name)
     size_t len = strlen(name);
     Decompress which;
 
-    if (len > 2 && !strcmp(name + len - 2, ".Z")) {
+#define CHKEND(end) \
+    (len > (sizeof(end) - 1) && \
+     !strcmp(name + len - (sizeof(end) - 1), end))
+
+    if (CHKEND(".Z")) {
 	which = dcCompress;
-    } else if (len > 2 && !strcmp(name + len - 2, ".z")) {
+    } else if (CHKEND(".z")) {
 	which = dcPack;
-    } else if (len > 3 && !strcmp(name + len - 3, ".gz")) {
+    } else if (CHKEND(".gz")) {
 	which = dcGzip;
-    } else if (len > 4 && !strcmp(name + len - 4, ".bz2")) {
+    } else if (CHKEND(".bz2")) {
 	which = dcBzip;
-    } else if (len > 5 && !strcmp(name + len - 5, ".lzma")) {
+    } else if (CHKEND(".lzma")) {
 	which = dcLzma;
-    } else if (len > 3 && !strcmp(name + len - 3, ".xz")) {
+    } else if (CHKEND(".xz")) {
 	which = dcXz;
+    } else if (CHKEND(".zst")) {
+	which = dcZstd;
     } else {
 	which = dcNone;
     }
@@ -3589,6 +3611,17 @@ main(int argc, char *argv[])
 		if (got == 6
 		    && !memcmp(sniff, "\3757zXZ\0", (size_t) 6)) {
 		    which = dcXz;
+		}
+	    } else if (ch >= 0x22 && ch <= 0x28) {	/* perhaps zstd */
+		sniff[got++] = (char) ch;
+		while (got < 4) {
+		    if ((ch = MY_GETC(stdin)) == EOF)
+			break;
+		    sniff[got++] = (char) ch;
+		}
+		if (got == 4	/* vi:{ */
+		    && !memcmp(sniff + 1, "\265/\375", (size_t) 3)) {
+		    which = dcZstd;
 		}
 	    } else if (ch == '\037') {	/* perhaps compress, etc. */
 		sniff[got++] = (char) ch;
