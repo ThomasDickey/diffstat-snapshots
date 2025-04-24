@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2023,2024 by Thomas E. Dickey                               *
+ * Copyright 1994-2024,2025 by Thomas E. Dickey                               *
  *                                                                            *
  * Permission is hereby granted, free of charge, to any person obtaining a    *
  * copy of this software and associated documentation files (the "Software"), *
@@ -26,7 +26,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.67 2024/11/11 13:01:06 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.68 2025/04/24 21:21:16 tom Exp $";
 #endif
 
 /*
@@ -34,6 +34,7 @@ static const char *Id = "$Id: diffstat.c,v 1.67 2024/11/11 13:01:06 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		24 Apr 2025, correct len parameter of mbsrtowcs.
  *		11 Nov 2024, add decompression for zstd
  *		28 Jan 2024, fixes for stricter gcc warnings
  *		01 Mar 2023, ignore ".git" directories, etc., in -S/-D options.
@@ -448,10 +449,10 @@ static const int colors[MARKS + 1] =
 {2, 1, 6, 4};
 
 static DATA *all_data;
-static char *S_option = 0;
-static char *D_option = 0;
+static char *S_option = NULL;
+static char *D_option = NULL;
 static const char *comment_opt = "";
-static char *path_opt = 0;
+static char *path_opt = NULL;
 static int count_files;		/* true if we count added/deleted files */
 static int format_opt = FMT_NORMAL;
 static int max_name_wide;	/* maximum amount reserved for filenames */
@@ -514,7 +515,7 @@ static int
 do_stat(const char *name, struct stat *sb)
 {
     int rc;
-    if (name != 0) {
+    if (name != NULL) {
 #ifdef HAVE_LSTAT
 	rc = lstat(name, sb);
 #else
@@ -557,9 +558,9 @@ same_file(const char *source, const char *target)
 	&& do_stat(target, &dsb) == 0 && S_ISREG(dsb.st_mode)
 	&& ssb.st_size == dsb.st_size) {
 	FILE *ip = fopen(source, "r");
-	if (ip != 0) {
+	if (ip != NULL) {
 	    FILE *op = fopen(target, "r");
-	    if (op != 0) {
+	    if (op != NULL) {
 		int a = EOF;
 		int b = EOF;
 		rc = 1;
@@ -651,7 +652,7 @@ add_tsearch_data(const char *original, const char *modified, int base)
     void *pp;
 
     init_data(&find, NULL, modified, 1, base);
-    if ((pp = tfind(&find, &sorted_data, compare_data)) != 0) {
+    if ((pp = tfind(&find, &sorted_data, compare_data)) != NULL) {
 	result = *(DATA **) pp;
 	return result;
     }
@@ -669,7 +670,7 @@ count_prefix(const char *name)
 {
     int count = 0;
     const char *s;
-    while ((s = strchr(name, PATHSEP)) != 0) {
+    while ((s = strchr(name, PATHSEP)) != NULL) {
 	name = s + 1;
 	++count;
     }
@@ -685,7 +686,7 @@ skip_prefix(const char *name, int prefix, int *base)
 
 	for (n = prefix; n > 0; n--) {
 	    const char *s = strchr(name + *base, PATHSEP);
-	    if (s == 0 || *++s == EOS) {
+	    if (s == NULL || *++s == EOS) {
 		name = s;
 		break;
 	    }
@@ -728,7 +729,7 @@ find_data(const char *original, const char *modified)
 	DATA *q;
 
 	init_data(&find, original, modified, 1, base);
-	for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+	for (p = all_data, q = NULL; p != NULL; q = p, p = p->link) {
 	    int cmp = compare_data(p, &find);
 	    if (merge_names && (cmp == 0))
 		return p;
@@ -736,7 +737,7 @@ find_data(const char *original, const char *modified)
 		break;
 	}
 	r = new_data(original, modified, base);
-	if (q != 0)
+	if (q != NULL)
 	    q->link = r;
 	else
 	    all_data = r;
@@ -759,13 +760,13 @@ delink(DATA * data)
 
 #ifdef HAVE_TSEARCH
     if (use_tsearch) {
-	if (tdelete(data, &sorted_data, compare_data) == 0)
+	if (tdelete(data, &sorted_data, compare_data) == NULL)
 	    return 0;
     }
 #endif
-    for (p = all_data, q = 0; p != 0; q = p, p = p->link) {
+    for (p = all_data, q = NULL; p != NULL; q = p, p = p->link) {
 	if (p == data) {
-	    if (q != 0)
+	    if (q != NULL)
 		q->link = p->link;
 	    else
 		all_data = p->link;
@@ -802,7 +803,7 @@ match(char *s, const char *p)
 	    break;
 	}
     }
-    return ok ? s : 0;
+    return ok ? s : NULL;
 }
 
 static int
@@ -841,26 +842,26 @@ decode_default(char *s,
 	*second_size = 1;
 
 	*first = strtol(s, &next, 10);
-	if (next != 0 && next != s) {
+	if (next != NULL && next != s) {
 	    if (*next == ',') {
 		s = ++next;
 		*first_size = strtol(s, &next, 10) + 1 - *first;
 	    }
 	}
-	if (next != 0 && next != s) {
+	if (next != NULL && next != s) {
 	    switch (*next++) {
 	    case 'a':
 	    case 'c':
 	    case 'd':
 		s = next;
 		*second = strtol(s, &next, 10);
-		if (next != 0 && next != s) {
+		if (next != NULL && next != s) {
 		    if (*next == ',') {
 			s = ++next;
 			*second_size = strtol(s, &next, 10) + 1 - *second;
 		    }
 		}
-		if (next != 0 && next != s && *next == EOS)
+		if (next != NULL && next != s && *next == EOS)
 		    rc = 1;
 		break;
 	    }
@@ -946,8 +947,8 @@ is_leaf(const char *theLeaf, const char *path)
 {
     const char *s;
 
-    if (strchr(theLeaf, PATHSEP) == 0
-	&& (s = strrchr(path, PATHSEP)) != 0
+    if (strchr(theLeaf, PATHSEP) == NULL
+	&& (s = strrchr(path, PATHSEP)) != NULL
 	&& !strcmp(++s, theLeaf))
 	return 1;
     return 0;
@@ -969,11 +970,13 @@ trim_datapath(DATA ** datap, size_t length, int *localp)
      */
     if (use_tsearch) {
 	char *trim = new_string(target);
-	trim[length] = EOS;
-	*datap = add_tsearch_data(NULL, trim, (*datap)->base);
-	target = (*datap)->modified;
-	free(trim);
-	*localp = 1;
+	if (trim != NULL) {
+	    trim[length] = EOS;
+	    *datap = add_tsearch_data(NULL, trim, (*datap)->base);
+	    target = (*datap)->modified;
+	    free(trim);
+	    *localp = 1;
+	}
     } else
 #endif
 	target[length] = EOS;
@@ -1156,7 +1159,7 @@ begin_data(const DATA * p)
 	   NonNull(p->modified)));
 
     if (!can_be_merged(p->modified)
-	&& strchr(p->modified, PATHSEP) != 0) {
+	&& strchr(p->modified, PATHSEP) != NULL) {
 	TRACE(("** begin_data:HAVE_PATH\n"));
 	return HAVE_PATH;
     }
@@ -1181,7 +1184,7 @@ skip_filename(char *s)
 {
     int delim = (*s == SQUOTE) ? SQUOTE : DQUOTE;
 
-    if ((*s == delim) && (s[1] != EOS) && (strchr) (s + 1, delim) != 0) {
+    if ((*s == delim) && (s[1] != EOS) && (strchr) (s + 1, delim) != NULL) {
 	++s;
 	while (*s != EOS && (*s != delim) && isprint(UC(*s))) {
 	    ++s;
@@ -1244,7 +1247,7 @@ fixed_buffer(char **buffer, size_t want)
 static void
 adjust_buffer(char **buffer, size_t want)
 {
-    if ((*buffer = (char *) realloc(*buffer, want)) == 0)
+    if ((*buffer = (char *) realloc(*buffer, want)) == NULL)
 	failed("realloc");
 }
 
@@ -1284,7 +1287,7 @@ count_lines2(const char *filename)
 
     TRACE(("count_lines \"%s\"\n", filename));
 
-    if ((fp = fopen(filename, "r")) != 0) {
+    if ((fp = fopen(filename, "r")) != NULL) {
 	int ch;
 
 	result = 0;
@@ -1308,11 +1311,11 @@ static int
 count_lines(const DATA * p)
 {
     int result = -1;
-    char *filename = 0;
+    char *filename = NULL;
     const char *filetail = data_filename(p);
     size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->modified);
 
-    if ((filename = xmalloc(want)) != 0) {
+    if ((filename = xmalloc(want)) != NULL) {
 	int merge = 0;
 
 	if (path_dest && *path_opt != EOS && *filetail != PATHSEP) {
@@ -1335,7 +1338,7 @@ count_lines(const DATA * p)
 		}
 	    }
 
-	    if (merge == 0 && tail_sep != 0) {
+	    if (merge == 0 && tail_sep != NULL) {
 		tail_len = (size_t) (tail_sep - filetail);
 		if (tail_len != 0 && tail_len <= path_len) {
 		    if (tail_len < path_len
@@ -1421,7 +1424,7 @@ finish_chunk(DATA * p)
 static char *
 copy_notabs(char *target, char *source, size_t limit)
 {
-    char *result = 0;
+    char *result = NULL;
     if (limit-- != 0) {		/* count trailing null */
 	char ch;
 	int found = 0;
@@ -1676,9 +1679,9 @@ do_file(FILE *fp, const char *default_name)
 
     DATA dummy;
     DATA *that = &dummy;
-    DATA *prev = 0;
-    char *buffer = 0;
-    char *b_fname = 0;
+    DATA *prev = NULL;
+    char *buffer = NULL;
+    char *b_fname = NULL;
     size_t length = 0;
     size_t fixed = 0;
     int ok = HAVE_NOTHING;
@@ -1732,7 +1735,7 @@ do_file(FILE *fp, const char *default_name)
 	 * Trim escapes from colordiff.
 	 */
 #define isFINAL(c) (UC(*s) >= '\140' && UC(*s) <= '\176')
-	if (trim_escapes && (strchr(buffer, '\033') != 0)) {
+	if (trim_escapes && (strchr(buffer, '\033') != NULL)) {
 	    char *d = buffer;
 	    s = d;
 	    while (*s != EOS) {
@@ -1834,7 +1837,7 @@ do_file(FILE *fp, const char *default_name)
 	     */
 	    unified = 0;
 	    TRACE(("?? Expected \"+++\" for unified diff\n"));
-	    if (prev != 0
+	    if (prev != NULL
 		&& prev != that
 		&& InsOf(that) == 0
 		&& DelOf(that) == 0
@@ -1865,7 +1868,7 @@ do_file(FILE *fp, const char *default_name)
 		    --new_unify;
 		break;
 	    case BACKSL:
-		if (strstr(buffer, "newline") != 0) {
+		if (strstr(buffer, "newline") != NULL) {
 		    break;
 		}
 		/* FALLTHRU */
@@ -1931,9 +1934,9 @@ do_file(FILE *fp, const char *default_name)
 	    break;
 	case 1:
 	    /* expect "index" */
-	    if (match(buffer, "index") != 0
-		|| match(buffer, "rename") != 0
-		|| match(buffer, "similarity") != 0) {
+	    if (match(buffer, "index") != NULL
+		|| match(buffer, "rename") != NULL
+		|| match(buffer, "similarity") != NULL) {
 		git_diff = 2;
 		continue;
 	    } else {
@@ -1942,11 +1945,11 @@ do_file(FILE *fp, const char *default_name)
 	    break;
 	case 2:
 	    /* perhaps "GIT binary patch" */
-	    if (match(buffer, "GIT binary patch") != 0) {
+	    if (match(buffer, "GIT binary patch") != NULL) {
 		git_diff = 3;
 		that->cmt = Binary;
 		continue;
-	    } else if (match(buffer, "Binary files ") != 0) {
+	    } else if (match(buffer, "Binary files ") != NULL) {
 		git_diff = 0;
 		that->cmt = Binary;
 		continue;
@@ -2000,7 +2003,7 @@ do_file(FILE *fp, const char *default_name)
 	     */
 	case 'I':
 	    CASE_TRACE();
-	    if ((s = match(buffer, "Index: ")) != 0) {
+	    if ((s = match(buffer, "Index: ")) != NULL) {
 		s = skip_blanks(s);
 		dequote(s);
 		blip('.');
@@ -2013,7 +2016,7 @@ do_file(FILE *fp, const char *default_name)
 
 	case 'd':		/* diff command trace */
 	    CASE_TRACE();
-	    if ((s = match(buffer, "diff ")) != 0
+	    if ((s = match(buffer, "diff ")) != NULL
 		&& *(s = skip_options(s)) != EOS) {
 		char *original = NULL;
 		char *modified = NULL;
@@ -2030,7 +2033,7 @@ do_file(FILE *fp, const char *default_name)
 		    modified = s;
 		    *to_blank = EOS;
 		}
-		if (match(buffer, "diff --git ") != 0) {
+		if (match(buffer, "diff --git ") != NULL) {
 		    size_t old_len = strlen(original);
 		    size_t new_len = strlen(modified);
 		    char *temp = xmalloc(old_len + new_len + 1);
@@ -2141,7 +2144,7 @@ do_file(FILE *fp, const char *default_name)
 
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
-			prev = 0;
+			prev = NULL;
 		    that = find_data(git_source, s);
 		    ok = begin_data(that);
 		    TRACE(("** after merge:%d:%s\n", ok, s));
@@ -2174,7 +2177,7 @@ do_file(FILE *fp, const char *default_name)
 		    dequote(b_fname);
 		    s = do_merging(that, b_fname, &freed);
 		    if (freed)
-			prev = 0;
+			prev = NULL;
 		    that = find_data(NULL, s);
 		    ok = begin_data(that);
 		    TRACE(("** after merge:%d:%s\n", ok, s));
@@ -2219,7 +2222,7 @@ do_file(FILE *fp, const char *default_name)
 	case 'F':		/* FALL-THRU */
 	case 'f':
 	    CASE_TRACE();
-	    if ((s = match(buffer + 1, "iles ")) != 0) {
+	    if ((s = match(buffer + 1, "iles ")) != NULL) {
 		char *first = skip_blanks(s);
 		/* blindly assume the first filename does not contain " and " */
 		char *at_and = strstr(s, " and ");
@@ -2247,7 +2250,7 @@ do_file(FILE *fp, const char *default_name)
 	case 'B':		/* FALL-THRU */
 	case 'b':
 	    CASE_TRACE();
-	    if ((s = match(buffer + 1, "inary files ")) != 0) {
+	    if ((s = match(buffer + 1, "inary files ")) != NULL) {
 		char *first = skip_blanks(s);
 		/* blindly assume the first filename does not contain " and " */
 		char *at_and = strstr(s, " and ");
@@ -2547,7 +2550,7 @@ columns_of(const char *value)
 	    wchar_t *target = calloc(1 + needed, sizeof(wchar_t));
 	    memset(&state, 0, sizeof(state));
 	    source = value;
-	    if (mbsrtowcs(target, &source, length, &state) == needed) {
+	    if (mbsrtowcs(target, &source, needed, &state) == needed) {
 		size_t n2;
 		result = 0;
 		for (n2 = 0; n2 < needed; ++n2) {
@@ -2647,7 +2650,6 @@ static void
 show_data(const DATA * p)
 {
     const char *name = data_filename(p);
-    int width;
 
     if (summary_only) {
 	;
@@ -2676,6 +2678,8 @@ show_data(const DATA * p)
     } else if (names_only) {
 	printf("%s\n", name);
     } else {
+	int width;
+
 	printf("%s ", comment_opt);
 	if (max_name_wide > 0
 	    && max_name_wide < min_name_wide
@@ -2748,7 +2752,7 @@ path_length(const char *path)
 {
     size_t result = 0;
     char *mark = strrchr(path, PATHSEP);
-    if (mark != 0 && mark != path)
+    if (mark != NULL && mark != path)
 	result = (size_t) (mark + 1 - path);
     return result;
 }
@@ -2796,14 +2800,14 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
     if (is_dir(pathname)) {
 	DIR *dp = opendir(pathname);
 
-	if (dp != 0) {
+	if (dp != NULL) {
 	    const struct dirent *de;
 
-	    while ((de = readdir(dp)) != 0) {
+	    while ((de = readdir(dp)) != NULL) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 		    continue;
 		name = xmalloc(strlen(pathname) + 2 + strlen(de->d_name));
-		if (name != 0) {
+		if (name != NULL) {
 		    sprintf(name, "%s%c%s", pathname, PATHSEP, de->d_name);
 		    if ((strcmp(de->d_name, ".git")
 			 && strcmp(de->d_name, ".svn")
@@ -2825,7 +2829,7 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	const char *ref_name = ((all_data && !unchanged)
 				? all_data->modified
 				: pathname);
-	char *source = 0;
+	char *source = NULL;
 
 	if (ref_name == NULL)
 	    return;
@@ -2867,7 +2871,7 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 	if (same_file(source, pathname)) {
 	    int found = 0;
 
-	    for (p = all_data; p != 0 && !found; p = p->link) {
+	    for (p = all_data; p != NULL && !found; p = p->link) {
 		if (!strcmp(name, p->modified)) {
 		    found = 1;
 		}
@@ -3004,7 +3008,7 @@ summarize(void)
 		InsOf(p) = save_del;
 		DelOf(p) = save_ins;
 	    }
-	    if (path_opt != 0) {
+	    if (path_opt != NULL) {
 		int count = count_lines(p);
 
 		if (count >= 0) {
@@ -3032,8 +3036,8 @@ summarize(void)
     update_min_name_wide(longest_name);
 
 #ifdef HAVE_OPENDIR
-    if (S_option != 0 && D_option != 0) {
-	unchanged = (all_data == 0);
+    if (S_option != NULL && D_option != NULL) {
+	unchanged = (all_data == NULL);
 	count_unmodified_files(D_option, &files_equal, &total_eql);
 	if (unchanged) {
 	    for (p = all_data; p; p = p->link) {
@@ -3100,7 +3104,7 @@ summarize(void)
 		printf(", %ld deletion%s(-)", PLURAL(total_del));
 	    if (total_mod)
 		printf(", %ld modification%s(!)", PLURAL(total_mod));
-	    if (total_eql && path_opt != 0)
+	    if (total_eql && path_opt != NULL)
 		printf(", %ld unchanged line%s(=)", PLURAL(total_eql));
 	    if (count_files) {
 		if (files_added)
@@ -3120,7 +3124,7 @@ static const char *
 get_program(const char *name, const char *dft)
 {
     const char *result = getenv(name);
-    if (result == 0 || *result == EOS)
+    if (result == NULL || *result == EOS)
 	result = dft;
     TRACE(("get_program(%s) = %s\n", name, result));
     return result;
@@ -3130,9 +3134,9 @@ get_program(const char *name, const char *dft)
 static char *
 decompressor(Decompress which, const char *name)
 {
-    const char *verb = 0;
+    const char *verb = NULL;
     const char *opts = "";
-    char *result = 0;
+    char *result = NULL;
 
     switch (which) {
     case dcBzip:
@@ -3178,7 +3182,7 @@ decompressor(Decompress which, const char *name)
     case dcNone:
 	break;
     }
-    if (verb != 0 && *verb != EOS) {
+    if (verb != NULL && *verb != EOS) {
 	result = (char *) xmalloc(strlen(verb) + 10 + strlen(name));
 	sprintf(result, "%s %s", verb, opts);
 	if (*name != EOS) {
@@ -3243,21 +3247,21 @@ static char *
 copy_stdin(char **dirpath)
 {
     const char *tmp = getenv("TMPDIR");
-    char *result = 0;
-    if (tmp == 0)
+    char *result = NULL;
+    if (tmp == NULL)
 	tmp = "/tmp/";
     *dirpath = xmalloc(strlen(tmp) + 12);
 
     strcpy(*dirpath, tmp);
     strcat(*dirpath, "/diffXXXXXX");
 
-    if (MY_MKDTEMP(*dirpath) != 0) {
+    if (MY_MKDTEMP(*dirpath) != NULL) {
 	FILE *fp;
 
 	result = xmalloc(strlen(*dirpath) + 10);
 	sprintf(result, "%s/stdin", *dirpath);
 
-	if ((fp = fopen(result, "w")) != 0) {
+	if ((fp = fopen(result, "w")) != NULL) {
 	    int ch;
 
 	    while ((ch = MY_GETC(stdin)) != EOF) {
@@ -3266,14 +3270,14 @@ copy_stdin(char **dirpath)
 	    (void) fclose(fp);
 	} else {
 	    free(result);
-	    result = 0;
+	    result = NULL;
 	    rmdir(*dirpath);	/* Assume that the /stdin file was not created */
 	    free(*dirpath);
-	    *dirpath = 0;
+	    *dirpath = NULL;
 	}
     } else {
 	free(*dirpath);
-	*dirpath = 0;
+	*dirpath = NULL;
     }
     return result;
 }
@@ -3344,7 +3348,7 @@ usage(FILE *fp)
 	fprintf(fp, "%s\n", msg[j]);
 }
 
-/* Wrapper around getopt that also parses "--help" and "--version".  
+/* Wrapper around getopt that also parses "--help" and "--version".
  * argc, argv, opts, return value, and globals optarg, optind,
  * opterr, and optopt are as in getopt().  help and version designate
  * what should be returned if --help or --version are encountered. */
@@ -3367,9 +3371,9 @@ getopt_helper(int argc, char *const argv[], const char *opts,
 static int
 getopt_value(void)
 {
-    char *next = 0;
+    char *next = NULL;
     long value = strtol(optarg, &next, 0);
-    if (next == 0 || *next != EOS) {
+    if (next == NULL || *next != EOS) {
 	(void) fflush(stdout);
 	fprintf(stderr, "expected a number, have '%s'\n", optarg);
 	exit(EXIT_FAILURE);
@@ -3437,7 +3441,7 @@ main(int argc, char *argv[])
 	    D_option = optarg;
 	    break;
 	case 'e':
-	    if (freopen(optarg, "w", stderr) == 0)
+	    if (freopen(optarg, "w", stderr) == NULL)
 		failed(optarg);
 	    break;
 	case 'E':
@@ -3468,7 +3472,7 @@ main(int argc, char *argv[])
 	    max_name_wide = getopt_value();
 	    break;
 	case 'o':
-	    if (freopen(optarg, "w", stdout) == 0)
+	    if (freopen(optarg, "w", stdout) == NULL)
 		failed(optarg);
 	    break;
 	case 'p':
@@ -3541,8 +3545,8 @@ main(int argc, char *argv[])
 	    const char *name = argv[optind++];
 #ifdef HAVE_POPEN
 	    char *command = is_compressed(name);
-	    if (command != 0) {
-		if ((fp = popen(command, "r")) != 0) {
+	    if (command != NULL) {
+		if ((fp = popen(command, "r")) != NULL) {
 		    if (show_progress) {
 			(void) fflush(stdout);
 			(void) fprintf(stderr, "%s\n", name);
@@ -3554,7 +3558,7 @@ main(int argc, char *argv[])
 		free(command);
 	    } else
 #endif
-	    if ((fp = fopen(name, "rb")) != 0) {
+	    if ((fp = fopen(name, "rb")) != NULL) {
 		if (show_progress) {
 		    (void) fflush(stdout);
 		    (void) fprintf(stderr, "%s\n", name);
@@ -3569,7 +3573,7 @@ main(int argc, char *argv[])
     } else {
 #ifdef HAVE_POPEN
 	Decompress which = dcEmpty;
-	char *stdin_dir = 0;
+	char *stdin_dir = NULL;
 	char *myfile;
 	char sniff[8];
 	int ch;
@@ -3648,17 +3652,17 @@ main(int argc, char *argv[])
 	 * virtually everyone allows more.
 	 */
 	while (got != 0) {
-	    ungetc(sniff[--got], stdin);
+	    ungetc((unsigned char) sniff[--got], stdin);
 	}
 	if (which != dcNone
 	    && which != dcEmpty
-	    && (myfile = copy_stdin(&stdin_dir)) != 0) {
+	    && (myfile = copy_stdin(&stdin_dir)) != NULL) {
 	    FILE *fp;
 	    char *command;
 
 	    /* open pipe to decompress temporary file */
 	    command = decompressor(which, myfile);
-	    if ((fp = popen(command, "r")) != 0) {
+	    if ((fp = popen(command, "r")) != NULL) {
 		do_file(fp, "stdin");
 		(void) pclose(fp);
 	    }
@@ -3666,10 +3670,10 @@ main(int argc, char *argv[])
 
 	    unlink(myfile);
 	    free(myfile);
-	    myfile = 0;
+	    myfile = NULL;
 	    rmdir(stdin_dir);
 	    free(stdin_dir);
-	    stdin_dir = 0;
+	    stdin_dir = NULL;
 	} else if (which != dcEmpty)
 #endif
 	    do_file(stdin, "stdin");

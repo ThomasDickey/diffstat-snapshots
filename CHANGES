@@ -1,4 +1,13 @@
--- $Id: CHANGES,v 1.113 2024/11/11 11:50:08 tom Exp $
+-- $Id: CHANGES,v 1.116 2025/04/24 19:21:22 tom Exp $
+
+2025/04/24 (diffstat 1.68)
+	+ correct len parameter of mbsrtowcs (Redhat #2362049).
+
+	+ improve configure script:
+	  CF_CONST_X_STRING, simplify with $ac_includes_default
+	  CF_GCC_WARNINGS, add gcc15 warning for zero vs NULL
+	  CF_PROG_LINT add options for lint program on NetBSD, and make a
+	  "predefined" symbol to help with cppcheck false-positives
 
 2024/11/11 (diffstat 1.67)
 	+ align license text with xterm, i.e., "MIT-X11"
