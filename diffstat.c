@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright 1994-2024,2025 by Thomas E. Dickey                               *
+ * Copyright 1994-2025,2026 by Thomas E. Dickey                               *
  *                                                                            *
  * Permission is hereby granted, free of charge, to any person obtaining a    *
  * copy of this software and associated documentation files (the "Software"), *
@@ -26,7 +26,7 @@
  ******************************************************************************/
 
 #ifndef	NO_IDENT
-static const char *Id = "$Id: diffstat.c,v 1.68 2025/04/24 21:21:16 tom Exp $";
+static const char *Id = "$Id: diffstat.c,v 1.69 2026/04/15 00:32:18 tom Exp $";
 #endif
 
 /*
@@ -34,6 +34,7 @@ static const char *Id = "$Id: diffstat.c,v 1.68 2025/04/24 21:21:16 tom Exp $";
  * Author:	T.E.Dickey
  * Created:	02 Feb 1992
  * Modified:
+ *		14 Apr 2026, fixes for compiler-warnings.
  *		24 Apr 2025, correct len parameter of mbsrtowcs.
  *		11 Nov 2024, add decompression for zstd
  *		28 Jan 2024, fixes for stricter gcc warnings
@@ -830,7 +831,7 @@ edit_range(const char *s)
  * Decode a range for default diff.
  */
 static int
-decode_default(char *s,
+decode_default(const char *s,
 	       long *first, long *first_size,
 	       long *second, long *second_size)
 {
@@ -854,6 +855,7 @@ decode_default(char *s,
 	    case 'c':
 	    case 'd':
 		s = next;
+		next = NULL;
 		*second = strtol(s, &next, 10);
 		if (next != NULL && next != s) {
 		    if (*next == ',') {
@@ -1311,69 +1313,64 @@ static int
 count_lines(const DATA * p)
 {
     int result = -1;
-    char *filename = NULL;
     const char *filetail = data_filename(p);
     size_t want = strlen(path_opt) + 2 + strlen(filetail) + strlen(p->modified);
+    int merge = 0;
+    char *filename = xmalloc(want);
 
-    if ((filename = xmalloc(want)) != NULL) {
-	int merge = 0;
+    if (path_dest && *path_opt != EOS && *filetail != PATHSEP) {
+	size_t path_len = strlen(path_opt);
+	size_t tail_len = strlen(filetail);
+	const char *tail_sep = strchr(filetail, PATHSEP);
+	size_t n;
 
-	if (path_dest && *path_opt != EOS && *filetail != PATHSEP) {
-	    size_t path_len = strlen(path_opt);
-	    size_t tail_len = strlen(filetail);
-	    const char *tail_sep = strchr(filetail, PATHSEP);
-	    size_t n;
-
-	    for (n = path_len - 1; (int) n >= 0; --n) {
-		if ((path_len - n) > tail_len)
+	for (n = path_len - 1; (int) n >= 0; --n) {
+	    if ((path_len - n) > tail_len)
+		break;
+	    if ((n == 0 || path_opt[n - 1] == PATHSEP)
+		&& filetail[path_len - n] == PATHSEP) {
+		if (!strncmp(path_opt + n, filetail, path_len - n)) {
+		    merge = 1;
+		    strcpy(filename, path_opt);
+		    strcpy(filename + n, filetail);
 		    break;
-		if ((n == 0 || path_opt[n - 1] == PATHSEP)
-		    && filetail[path_len - n] == PATHSEP) {
-		    if (!strncmp(path_opt + n, filetail, path_len - n)) {
-			merge = 1;
-			strcpy(filename, path_opt);
-			strcpy(filename + n, filetail);
-			break;
-		    }
 		}
 	    }
+	}
 
-	    if (merge == 0 && tail_sep != NULL) {
-		tail_len = (size_t) (tail_sep - filetail);
-		if (tail_len != 0 && tail_len <= path_len) {
-		    if (tail_len < path_len
-			&& path_opt[path_len - tail_len - 1] != PATHSEP) {
-			merge = 0;
-		    } else if (!strncmp(path_opt + path_len - tail_len,
-					filetail,
-					tail_len - 1)) {
-			merge = 1;
-			if (path_len > tail_len) {
-			    sprintf(filename, "%.*s%c%s",
-				    (int) (path_len - tail_len),
-				    path_opt,
-				    PATHSEP,
-				    filetail);
-			} else {
-			    strcpy(filename, filetail);
-			}
+	if (merge == 0 && tail_sep != NULL) {
+	    tail_len = (size_t) (tail_sep - filetail);
+	    if (tail_len != 0 && tail_len <= path_len) {
+		if (tail_len < path_len
+		    && path_opt[path_len - tail_len - 1] != PATHSEP) {
+		    merge = 0;
+		} else if (!strncmp(path_opt + path_len - tail_len,
+				    filetail,
+				    tail_len - 1)) {
+		    merge = 1;
+		    if (path_len > tail_len) {
+			sprintf(filename, "%.*s%c%s",
+				(int) (path_len - tail_len),
+				path_opt,
+				PATHSEP,
+				filetail);
+		    } else {
+			strcpy(filename, filetail);
 		    }
 		}
 	    }
 	}
-	if (!merge) {
-	    if (!path_opt) {
-		strcpy(filename, p->modified);
-	    } else {
-		sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
-	    }
-	}
-
-	result = count_lines2(filename);
-	free(filename);
-    } else {
-	failed("count_lines");
     }
+    if (!merge) {
+	if (!path_opt) {
+	    strcpy(filename, p->modified);
+	} else {
+	    sprintf(filename, "%s%c%s", path_opt, PATHSEP, filetail);
+	}
+    }
+
+    result = count_lines2(filename);
+    free(filename);
     return result;
 }
 
@@ -2549,8 +2546,7 @@ columns_of(const char *value)
 	if (needed != (size_t) (-1)) {
 	    wchar_t *target = calloc(1 + needed, sizeof(wchar_t));
 	    memset(&state, 0, sizeof(state));
-	    source = value;
-	    if (mbsrtowcs(target, &source, needed, &state) == needed) {
+	    if (mbsrtowcs(target, &value, needed, &state) == needed) {
 		size_t n2;
 		result = 0;
 		for (n2 = 0; n2 < needed; ++n2) {
@@ -2751,7 +2747,7 @@ static size_t
 path_length(const char *path)
 {
     size_t result = 0;
-    char *mark = strrchr(path, PATHSEP);
+    const char *mark = strrchr(path, PATHSEP);
     if (mark != NULL && mark != path)
 	result = (size_t) (mark + 1 - path);
     return result;
@@ -2769,7 +2765,7 @@ resolve_only(const DATA * p)
 {
     Comment result = p->cmt;
     if (result == Only && !reverse_opt) {
-	DATA *q;
+	const DATA *q;
 	size_t len1 = path_length(p->modified);
 	if (len1 != 0) {
 	    for (q = all_data; q; q = q->link) {
@@ -2807,16 +2803,14 @@ count_unmodified_files(const char *pathname, long *files, long *lines)
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 		    continue;
 		name = xmalloc(strlen(pathname) + 2 + strlen(de->d_name));
-		if (name != NULL) {
-		    sprintf(name, "%s%c%s", pathname, PATHSEP, de->d_name);
-		    if ((strcmp(de->d_name, ".git")
-			 && strcmp(de->d_name, ".svn")
-			 && strcmp(de->d_name, "CVS")
-			 && strcmp(de->d_name, "RCS")) || !is_dir(name)) {
-			count_unmodified_files(name, files, lines);
-		    }
-		    free(name);
+		sprintf(name, "%s%c%s", pathname, PATHSEP, de->d_name);
+		if ((strcmp(de->d_name, ".git")
+		     && strcmp(de->d_name, ".svn")
+		     && strcmp(de->d_name, "CVS")
+		     && strcmp(de->d_name, "RCS")) || !is_dir(name)) {
+		    count_unmodified_files(name, files, lines);
 		}
+		free(name);
 	    }
 	    closedir(dp);
 	}

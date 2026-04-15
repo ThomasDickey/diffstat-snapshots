@@ -1,4 +1,9 @@
--- $Id: CHANGES,v 1.116 2025/04/24 19:21:22 tom Exp $
+-- $Id: CHANGES,v 1.118 2026/04/15 00:30:48 tom Exp $
+
+2026/04/14 (diffstat 1.69)
+	+ fixes for cppcheck and gcc 16 warnings.
+
+	+ modify makefile rule, adding CFLAGS to link command for ASAN.
 
 2025/04/24 (diffstat 1.68)
 	+ correct len parameter of mbsrtowcs (Redhat #2362049).

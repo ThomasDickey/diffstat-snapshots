@@ -1,4 +1,4 @@
-# $Id: makefile.in,v 1.35 2018/08/15 00:55:15 tom Exp $
+# $Id: makefile.in,v 1.36 2026/04/14 21:07:31 tom Exp $
 # Makefile-template for 'diffstat'
 
 THIS		= diffstat
@@ -76,7 +76,7 @@ DISTFILES =	configure config.guess config.sub $(SRC)
 all :	$(PROG)
 
 $(PROG) : diffstat$o $(EXTRA_OBJS)
-	@ECHO_LD@$(LINK) $(LDFLAGS) -o $@ diffstat$o $(EXTRA_OBJS) $(LIBS)
+	@ECHO_LD@$(LINK) $(CFLAGS) $(LDFLAGS) -o $@ diffstat$o $(EXTRA_OBJS) $(LIBS)
 
 install : all installdirs
 	$(INSTALL_PROGRAM) $(PROG) $(BINDIR)/$(PROG)

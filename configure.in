@@ -1,7 +1,7 @@
 dnl Process this file with 'autoconf' to produce a 'configure' script
-dnl $Id: configure.in,v 1.35 2024/11/11 11:57:26 tom Exp $
+dnl $Id: configure.in,v 1.36 2026/03/20 08:12:34 tom Exp $
 dnl ---------------------------------------------------------------------------
-dnl Copyright 1994-2023,2024 Thomas E. Dickey
+dnl Copyright 1994-2024,2026 Thomas E. Dickey
 dnl
 dnl Permission is hereby granted, free of charge, to any person obtaining a
 dnl copy of this software and associated documentation files (the "Software"),
@@ -27,9 +27,10 @@ dnl use or other dealings in this Software without prior written
 dnl authorization.
 dnl ---------------------------------------------------------------------------
 AC_PREREQ(2.52.20190901)
-AC_REVISION($Revision: 1.35 $)
-AC_INIT(diffstat.c)
-AC_CONFIG_HEADER(config.h:config_h.in)
+AC_REVISION($Revision: 1.36 $)
+AC_INIT
+AC_CONFIG_SRCDIR([diffstat.c])
+AC_CONFIG_HEADERS([config.h:config_h.in])
 CF_CHECK_CACHE
 
 CF_PROG_CC
@@ -55,9 +56,9 @@ CF_PATH_PROG(ZSTD, zstd)
 CF_XOPEN_SOURCE
 CF_WITH_WARNINGS
 
-AC_CONST
+AC_C_CONST
 AC_CHECK_DECL(exit)
-AC_HAVE_HEADERS(ioctl.h search.h sys/ioctl.h)
+AC_CHECK_HEADERS([ioctl.h search.h sys/ioctl.h])
 
 AC_TYPE_SIZE_T
 
@@ -83,5 +84,7 @@ CF_WITH_MAN2HTML
 CF_DISABLE_LEAKS
 
 ###	output makefile and config.h
-AC_OUTPUT(makefile,,,cat)
+AC_CONFIG_FILES([makefile])
+AC_SETUP_DEFS([cat])
+AC_OUTPUT
 CF_MAKE_DOCS(diffstat,1)

@@ -1,14 +1,12 @@
 Summary:  Make histogram from diff-output
-%define AppProgram diffstat
-%define AppVersion 1.68
-# $XTermId: diffstat.spec,v 1.22 2025/04/24 19:25:35 tom Exp $
-Name: %{AppProgram}
-Version: %{AppVersion}
+# $XTermId: diffstat.spec,v 1.25 2026/04/15 00:31:21 tom Exp $
+Name: diffstat
+Version: 1.69
 Release: 1
 License: MIT
 Group: Applications/Development
-URL: https://invisible-island.net/archives/%{AppProgram}
-Source0: %{AppProgram}-%{AppVersion}.tgz
+URL: https://invisible-island.net/archives/%{name}
+Source0: %{name}-%{version}.tgz
 Packager: Thomas Dickey <dickey@invisible-island.net>
 
 %description
@@ -20,7 +18,7 @@ of the total lines changed for each file referenced.
 
 %define debug_package %{nil}
 
-%setup -q -n %{AppProgram}-%{AppVersion}
+%setup -q -n %{name}-%{version}
 
 %build
 
@@ -39,18 +37,21 @@ make
 
 make install                    DESTDIR=$RPM_BUILD_ROOT
 
-strip $RPM_BUILD_ROOT%{_bindir}/%{AppProgram}
+strip $RPM_BUILD_ROOT%{_bindir}/%{name}
 
 %clean
 [ "$RPM_BUILD_ROOT" != "/" ] && rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-%{_prefix}/bin/%{AppProgram}
-%{_mandir}/man1/%{AppProgram}.*
+%{_prefix}/bin/%{name}
+%{_mandir}/man1/%{name}.*
 
 %changelog
 # each patch should add its ChangeLog entries here
+
+* Tue Apr 14 2026 Thomas E. Dickey
+- testing diffstat 1.69-1
 
 * Fri Jan 26 2024 Thomas Dickey
 - update URLs
